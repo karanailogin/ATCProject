@@ -1,13 +1,18 @@
 using UnityEngine;
 using TMPro;
 using UnityEngine.UI;
-using UnityEngine.EventSystems;
 
-public class FlightInfoUI : MonoBehaviour, IPointerClickHandler
+public class FlightInfoUI : MonoBehaviour
 {
     public TextMeshProUGUI flightNameText;
     public TextMeshProUGUI routeText;
     public TextMeshProUGUI statusText;
+
+    [Header("Selection Colors")]
+    public Color normalColor = new Color(0.15f, 0.15f, 0.17f, 1.0f);
+    public Color selectedColor = new Color(0.11f, 0.38f, 0.73f, 1.0f); // Bright elegant blue highlight
+
+    public static Flight selectedFlight;
 
     private Flight currentFlight;
     private Button clickButton;
@@ -22,6 +27,16 @@ public class FlightInfoUI : MonoBehaviour, IPointerClickHandler
         else
         {
             Debug.LogWarning("FlightInfoUI card has no Button component. Add a Button to the flight card prefab for reliable clicks.");
+        }
+    }
+
+    public void UpdateSelectionVisuals()
+    {
+        var image = GetComponent<UnityEngine.UI.Image>();
+        if (image != null)
+        {
+            bool isSelected = (selectedFlight != null && currentFlight == selectedFlight);
+            image.color = isSelected ? selectedColor : normalColor;
         }
     }
 
@@ -61,17 +76,30 @@ public class FlightInfoUI : MonoBehaviour, IPointerClickHandler
                 barImg.color = statusColor;
             }
         }
-    }
 
-    public void OnPointerClick(PointerEventData eventData)
-    {
-        OnFlightClicked();
+        UpdateSelectionVisuals();
     }
 
     private void OnFlightClicked()
     {
         if (currentFlight != null)
         {
+            selectedFlight = currentFlight;
+
+            // Instantly refresh the selection color for this card and all sibling cards
+            if (transform.parent != null)
+            {
+                foreach (Transform child in transform.parent)
+                {
+                    var flightUI = child.GetComponent<FlightInfoUI>();
+                    if (flightUI != null)
+                    {
+                        flightUI.UpdateSelectionVisuals();
+                    }
+                }
+            }
+
+            Debug.Log($"Button clicked: Flight Card click event for flight: {currentFlight.flightName}");
             FlightDetailsPanel.ShowFlightDetails(currentFlight);
 
             // Also try the dedicated sidebar if present

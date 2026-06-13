@@ -5,40 +5,96 @@ using System.Collections.Generic;
 
 public class FlightDetailsPanel : MonoBehaviour
 {
-    [Header("Flight details UI")]
-    public TMP_Text flightNameText;
+    [Header("Flight Header Details")]
+    public TMP_Text flightNumberText;
     public TMP_Text routeText;
+    public TMP_Text depCountryText;
+    public TMP_Text arrCountryText;
+    public TMP_Text expectedDepText;
+    public TMP_Text expectedArrText;
     public TMP_Text aircraftTypeText;
     public TMP_Text durationText;
-    public TMP_Text statusText;
-    public TMP_Text departureTimeText;
-    public TMP_Text arrivalTimeText;
-    public TMP_Text expectedDepartureText;
-    public TMP_Text expectedArrivalText;
-    public TMP_Text gateText;
-    public TMP_Text runwayText;
 
-    [Header("Slot Selection Dropdowns")]
-    public TMP_Dropdown expectedDepartureDropdown;
-    public TMP_Dropdown expectedArrivalDropdown;
+    [Header("Status Selector")]
+    public Button securityChipButton;
+    public Button boardingChipButton;
+    public Button taxiChipButton;
+    public Button readyChipButton;
+    
+    [Header("Status Styling Colors")]
+    public Color chipActiveBgColor = new Color(0.14f, 0.65f, 0.31f); // Emerald Green
+    public Color chipInactiveBgColor = new Color(0.18f, 0.18f, 0.20f); // Dark Charcoal
+    public Color chipActiveTextColor = Color.white;
+    public Color chipInactiveTextColor = new Color(0.65f, 0.65f, 0.68f);
 
-    [Header("Buttons")]
-    public Button discardButton;
-    public Button approveButton;
+    [Header("Editable Info Rows")]
+    public Button scheduledDepRowButton;
+    public TMP_Text scheduledDepValueText;
 
-    [Header("Panel")]
+    public Button scheduledArrRowButton;
+    public TMP_Text scheduledArrValueText;
+
+    public Button boardingGateRowButton;
+    public TMP_Text boardingGateValueText;
+
+    public Button assignedRunwayRowButton;
+    public TMP_Text assignedRunwayValueText;
+
+    [Header("Bottom Action Bar Buttons")]
+    public Button discardActionBarButton;
+    public Button approveActionBarButton;
+
+    [Header("Time Picker Popup Modal")]
+    public GameObject timePickerPopup;
+    public TMP_Text timePickerTitleText;
+    public Transform hourTabsContainer;
+    public Transform timeSlotsGridContainer;
+    public GameObject hourTabPrefab;
+    public GameObject timeSlotPrefab;
+    public Button timePickerCancelButton;
+    public Button timePickerConfirmButton;
+
+    [Header("Gate Picker Popup Modal")]
+    public GameObject gatePickerPopup;
+    public TMP_Text gatePickerTitleText;
+    public Transform gateCardsContainer;
+    public GameObject gateCardPrefab;
+    public Button gatePickerCancelButton;
+    public Button gatePickerConfirmButton;
+
+    [Header("Runway Picker Popup Modal")]
+    public GameObject runwayPickerPopup;
+    public TMP_Text runwayPickerTitleText;
+    public Transform runwayCardsContainer;
+    public GameObject runwayCardPrefab;
+    public Button runwayPickerCancelButton;
+    public Button runwayPickerConfirmButton;
+
+    [Header("Panel Containment")]
     public GameObject panelContainer;
 
     private static FlightDetailsPanel instance;
     private Flight currentFlight;
 
-    // Cache lists of slots for selection
-    private List<TimeSlot> departureSlots = new List<TimeSlot>();
-    private List<TimeSlot> arrivalSlots = new List<TimeSlot>();
+    // Temporary values for pending changes
+    private string tempStatus;
+    private int tempDepHour;
+    private int tempDepMinute;
+    private int tempArrHour;
+    private int tempArrMinute;
+    private string tempGate;
+    private string tempRunway;
+
+    // Internal state management for modals
+    private bool isPickingDepartureTime;
+    private int modalSelectedHour;
+    private int modalSelectedMinute;
+    private string modalSelectedGate;
+    private string modalSelectedRunway;
 
     private void Awake()
     {
-        if (instance == null)
+        if (instance == null || instance == this)
         {
             instance = this;
         }
@@ -48,29 +104,17 @@ public class FlightDetailsPanel : MonoBehaviour
             return;
         }
 
-        if (panelContainer != null)
-        {
-            panelContainer.SetActive(false);
-        }
+        // Initialize button listeners
+        SetupStatusChipListeners();
+        SetupInfoRowListeners();
+        SetupPopupActionListeners();
+    }
 
-        if (discardButton != null)
+    private void Start()
+    {
+        if (currentFlight == null)
         {
-            discardButton.onClick.AddListener(ClosePanel);
-        }
-
-        if (approveButton != null)
-        {
-            approveButton.onClick.AddListener(ApproveFlight);
-        }
-
-        if (expectedDepartureDropdown != null)
-        {
-            expectedDepartureDropdown.onValueChanged.AddListener(OnDepartureSlotChanged);
-        }
-
-        if (expectedArrivalDropdown != null)
-        {
-            expectedArrivalDropdown.onValueChanged.AddListener(OnArrivalSlotChanged);
+            ClosePanel();
         }
     }
 
@@ -78,38 +122,86 @@ public class FlightDetailsPanel : MonoBehaviour
     {
         if (instance == null)
         {
-            instance = FindAnyObjectByType<FlightDetailsPanel>();
+            var panels = FindObjectsByType<FlightDetailsPanel>(FindObjectsInactive.Include);
+            if (panels.Length > 0)
+            {
+                instance = panels[0];
+            }
         }
 
         if (instance == null)
         {
-            Debug.LogError("FlightDetailsPanel not found in scene. Make sure the sidebar panel exists under the Canvas and has the FlightDetailsPanel script attached.");
+            Debug.LogError("FlightDetailsPanel not found in scene.");
             return;
         }
 
         instance.DisplayFlight(flight);
     }
 
+    public static void CloseFlightDetails()
+    {
+        if (instance == null)
+        {
+            var panels = FindObjectsByType<FlightDetailsPanel>(FindObjectsInactive.Include);
+            if (panels.Length > 0)
+            {
+                instance = panels[0];
+            }
+        }
+
+        if (instance != null)
+        {
+            instance.ClosePanel();
+        }
+    }
+
     private void DisplayFlight(Flight flight)
     {
         currentFlight = flight;
 
-        if (flightNameText != null) flightNameText.text = flight.flightName;
-        if (routeText != null) routeText.text = $"Route: {flight.fromAirport} → {flight.toAirport}";
-        if (aircraftTypeText != null) aircraftTypeText.text = $"Aircraft: {flight.aircraftType}";
-        if (durationText != null) durationText.text = $"Duration: {flight.flightDurationMinutes} mins";
-        if (statusText != null) statusText.text = $"Status: {flight.status}" + (flight.landingApproved ? " (Approved)" : "");
-        if (departureTimeText != null) departureTimeText.text = flight.takeoffSlot != null ? $"Departure: {flight.takeoffSlot.GetTimeString()}" : "Departure: Not scheduled";
-        if (arrivalTimeText != null) arrivalTimeText.text = flight.landingSlot != null ? $"Arrival: {flight.landingSlot.GetTimeString()}" : "Arrival: Not scheduled";
-        
-        if (expectedDepartureText != null) expectedDepartureText.text = "Expected DEP Slot:";
-        if (expectedArrivalText != null) expectedArrivalText.text = "Expected ARR Slot:";
-        
-        if (gateText != null) gateText.text = $"Gate: {(string.IsNullOrWhiteSpace(flight.gate) || flight.gate == "NA" ? "B12" : flight.gate)}";
-        if (runwayText != null) runwayText.text = $"Runway: {(string.IsNullOrWhiteSpace(flight.runway) || flight.runway == "NA" ? "09L" : flight.runway)}";
+        // Initialize temporary draft values from flight model
+        tempStatus = flight.status;
+        tempGate = string.IsNullOrWhiteSpace(flight.gate) || flight.gate == "NA" ? "Gate A4" : flight.gate;
+        tempRunway = string.IsNullOrWhiteSpace(flight.runway) || flight.runway == "NA" ? "Runway 27L" : flight.runway;
 
-        // Setup dropdowns
-        PopulateDropdowns();
+        // Extract departure hours/minutes
+        if (flight.takeoffSlot != null)
+        {
+            tempDepHour = flight.takeoffSlot.hours;
+            tempDepMinute = flight.takeoffSlot.minutes;
+        }
+        else
+        {
+            tempDepHour = 12;
+            tempDepMinute = 30;
+        }
+
+        // Extract arrival hours/minutes
+        if (flight.landingSlot != null)
+        {
+            tempArrHour = flight.landingSlot.hours;
+            tempArrMinute = flight.landingSlot.minutes;
+        }
+        else
+        {
+            tempArrHour = 14;
+            tempArrMinute = 30;
+        }
+
+        // Update Text Elements in Header Section
+        if (flightNumberText != null) flightNumberText.text = flight.flightName;
+        if (routeText != null) routeText.text = $"{flight.fromAirport}  →  {flight.toAirport}";
+        if (depCountryText != null) depCountryText.text = "INDIA";
+        if (arrCountryText != null) arrCountryText.text = "INDIA";
+        if (aircraftTypeText != null) aircraftTypeText.text = flight.aircraftType;
+        if (durationText != null) durationText.text = $"{flight.flightDurationMinutes} mins";
+
+        RefreshHeaderExpectedTimes();
+        RefreshStatusChipsDisplay();
+        RefreshInfoRowsDisplay();
+
+        // Close any residual open popups
+        CloseAllPopups();
 
         if (panelContainer != null)
         {
@@ -117,188 +209,579 @@ public class FlightDetailsPanel : MonoBehaviour
         }
     }
 
-    private void PopulateDropdowns()
+    private void RefreshHeaderExpectedTimes()
     {
-        if (currentFlight == null || TimeSlotManager.Instance == null) return;
-
-        // 1. Expected Departure Dropdown
-        if (expectedDepartureDropdown != null)
+        if (expectedDepText != null)
         {
-            expectedDepartureDropdown.ClearOptions();
-            departureSlots.Clear();
-
-            List<TimeSlot> allDepSlots = TimeSlotManager.Instance.GetAvailableSlots(currentFlight.fromAirport);
-            List<string> depOptions = new List<string>();
-            int selectedDepIndex = 0;
-
-            foreach (TimeSlot slot in allDepSlots)
-            {
-                // Show slot if it is not booked OR if it is booked by this current flight
-                if (!slot.isBooked || slot.bookedByFlight == currentFlight.flightName || (currentFlight.takeoffSlot != null && currentFlight.takeoffSlot.hours == slot.hours && currentFlight.takeoffSlot.minutes == slot.minutes))
-                {
-                    departureSlots.Add(slot);
-                    depOptions.Add(slot.GetTimeString() + (slot.isBooked ? " (Booked)" : ""));
-
-                    // Check if this is the flight's current expected departure
-                    string currentExpected = string.IsNullOrWhiteSpace(currentFlight.expectedDeparture) || currentFlight.expectedDeparture == "NA" 
-                        ? (currentFlight.takeoffSlot != null ? currentFlight.takeoffSlot.GetTimeString() : "") 
-                        : currentFlight.expectedDeparture;
-
-                    if (slot.GetTimeString() == currentExpected)
-                    {
-                        selectedDepIndex = depOptions.Count - 1;
-                    }
-                }
-            }
-
-            expectedDepartureDropdown.AddOptions(depOptions);
-            expectedDepartureDropdown.SetValueWithoutNotify(selectedDepIndex);
+            expectedDepText.text = $"Expected Departure: {tempDepHour:D2}:{tempDepMinute:D2}";
         }
-
-        // 2. Expected Arrival Dropdown
-        PopulateArrivalDropdown();
+        if (expectedArrText != null)
+        {
+            expectedArrText.text = $"Expected Arrival: {tempArrHour:D2}:{tempArrMinute:D2}";
+        }
     }
 
-    private void PopulateArrivalDropdown()
+    private void RefreshStatusChipsDisplay()
     {
-        if (currentFlight == null || TimeSlotManager.Instance == null || expectedArrivalDropdown == null) return;
+        StyleChip(securityChipButton, tempStatus == "Security");
+        StyleChip(boardingChipButton, tempStatus == "Boarding");
+        StyleChip(taxiChipButton, tempStatus == "Taxi");
+        StyleChip(readyChipButton, tempStatus == "Ready" || tempStatus == "On Time" || tempStatus == "Approved");
+    }
 
-        expectedArrivalDropdown.ClearOptions();
-        arrivalSlots.Clear();
-
-        List<TimeSlot> allArrSlots = TimeSlotManager.Instance.GetAvailableSlots(currentFlight.toAirport);
-        List<string> arrOptions = new List<string>();
-        int selectedArrIndex = 0;
-
-        foreach (TimeSlot slot in allArrSlots)
+    private void StyleChip(Button button, bool isActive)
+    {
+        if (button == null) return;
+        var img = button.GetComponent<Image>();
+        if (img != null)
         {
-            if (!slot.isBooked || slot.bookedByFlight == currentFlight.flightName || (currentFlight.landingSlot != null && currentFlight.landingSlot.hours == slot.hours && currentFlight.landingSlot.minutes == slot.minutes))
+            img.color = isActive ? chipActiveBgColor : chipInactiveBgColor;
+        }
+        var txt = button.GetComponentInChildren<TMP_Text>();
+        if (txt != null)
+        {
+            txt.color = isActive ? chipActiveTextColor : chipInactiveTextColor;
+        }
+    }
+
+    private void RefreshInfoRowsDisplay()
+    {
+        if (scheduledDepValueText != null) scheduledDepValueText.text = $"{tempDepHour:D2}:{tempDepMinute:D2}";
+        if (scheduledArrValueText != null) scheduledArrValueText.text = $"{tempArrHour:D2}:{tempArrMinute:D2}";
+        if (boardingGateValueText != null) boardingGateValueText.text = tempGate;
+        if (assignedRunwayValueText != null) assignedRunwayValueText.text = tempRunway;
+
+        if (scheduledDepRowButton != null && currentFlight != null)
+        {
+            var label = scheduledDepRowButton.transform.Find("Label")?.GetComponent<TMP_Text>();
+            if (label != null)
             {
-                arrivalSlots.Add(slot);
-                arrOptions.Add(slot.GetTimeString() + (slot.isBooked ? " (Booked)" : ""));
+                label.text = $"Scheduled Departure ({currentFlight.fromAirport})";
+            }
+        }
+        if (scheduledArrRowButton != null && currentFlight != null)
+        {
+            var label = scheduledArrRowButton.transform.Find("Label")?.GetComponent<TMP_Text>();
+            if (label != null)
+            {
+                label.text = $"Scheduled Arrival ({currentFlight.toAirport})";
+            }
+        }
+    }
 
-                // Check if this is the flight's current expected arrival
-                string currentExpected = string.IsNullOrWhiteSpace(currentFlight.expectedArrival) || currentFlight.expectedArrival == "NA" 
-                    ? (currentFlight.landingSlot != null ? currentFlight.landingSlot.GetTimeString() : "") 
-                    : currentFlight.expectedArrival;
+    private void CloseAllPopups()
+    {
+        if (timePickerPopup != null) timePickerPopup.SetActive(false);
+        if (gatePickerPopup != null) gatePickerPopup.SetActive(false);
+        if (runwayPickerPopup != null) runwayPickerPopup.SetActive(false);
+    }
 
-                if (slot.GetTimeString() == currentExpected)
-                {
-                    selectedArrIndex = arrOptions.Count - 1;
-                }
+    // ==========================================
+    // LISTENERS & EVENT HANDLERS
+    // ==========================================
+
+    private void SetupStatusChipListeners()
+    {
+        if (securityChipButton != null) securityChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Security status chip CLICKED."); SetStatusDraft("Security"); });
+        if (boardingChipButton != null) boardingChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Boarding status chip CLICKED."); SetStatusDraft("Boarding"); });
+        if (taxiChipButton != null) taxiChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Taxi status chip CLICKED."); SetStatusDraft("Taxi"); });
+        if (readyChipButton != null) readyChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Ready status chip CLICKED."); SetStatusDraft("Ready"); });
+    }
+
+    private void SetStatusDraft(string newStatus)
+    {
+        tempStatus = newStatus;
+        RefreshStatusChipsDisplay();
+    }
+
+    private void SetupInfoRowListeners()
+    {
+        if (scheduledDepRowButton != null) scheduledDepRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Scheduled Departure row CLICKED."); OpenTimePicker(true); });
+        if (scheduledArrRowButton != null) scheduledArrRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Scheduled Arrival row CLICKED."); OpenTimePicker(false); });
+        if (boardingGateRowButton != null) boardingGateRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Boarding Gate row CLICKED."); OpenGatePicker(); });
+        if (assignedRunwayRowButton != null) assignedRunwayRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Assigned Runway row CLICKED."); OpenRunwayPicker(); });
+
+        if (discardActionBarButton != null) discardActionBarButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] DISCARD action button CLICKED."); ClosePanel(); });
+        if (approveActionBarButton != null) approveActionBarButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] REQUEST action button CLICKED."); ApproveAllChanges(); });
+    }
+
+    private void SetupPopupActionListeners()
+    {
+        // Time Picker Buttons
+        if (timePickerCancelButton != null) timePickerCancelButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Time Picker CANCEL CLICKED."); timePickerPopup.SetActive(false); });
+        if (timePickerConfirmButton != null) timePickerConfirmButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Time Picker CONFIRM CLICKED."); ConfirmTimePickerSelection(); });
+
+        // Gate Picker Buttons
+        if (gatePickerCancelButton != null) gatePickerCancelButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Gate Picker CANCEL CLICKED."); gatePickerPopup.SetActive(false); });
+        if (gatePickerConfirmButton != null) gatePickerConfirmButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Gate Picker CONFIRM CLICKED."); ConfirmGatePickerSelection(); });
+
+        // Runway Picker Buttons
+        if (runwayPickerCancelButton != null) runwayPickerCancelButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Runway Picker CANCEL CLICKED."); runwayPickerPopup.SetActive(false); });
+        if (runwayPickerConfirmButton != null) runwayPickerConfirmButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Runway Picker CONFIRM CLICKED."); ConfirmRunwayPickerSelection(); });
+    }
+
+    // ==========================================
+    // TIME PICKER POPUP FLOW
+    // ==========================================
+
+    private void OpenTimePicker(bool isDeparture)
+    {
+        isPickingDepartureTime = isDeparture;
+        CloseAllPopups();
+
+        if (timePickerTitleText != null && currentFlight != null)
+        {
+            string airportCode = isDeparture ? currentFlight.fromAirport : currentFlight.toAirport;
+            timePickerTitleText.text = isDeparture ? $"{airportCode} Schedule\nSelect Departure Time" : $"{airportCode} Schedule\nSelect Arrival Time";
+            
+            var rt = timePickerTitleText.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, -10.0f);
+                rt.sizeDelta = new Vector2(rt.sizeDelta.x, 50.0f);
             }
         }
 
-        expectedArrivalDropdown.AddOptions(arrOptions);
-        expectedArrivalDropdown.SetValueWithoutNotify(selectedArrIndex);
+        // Set initial selected values in picker modal
+        modalSelectedHour = isDeparture ? tempDepHour : tempArrHour;
+        modalSelectedMinute = isDeparture ? tempDepMinute : tempArrMinute;
+
+        // Regenerate Hour Tabs & Minute Grid
+        RedrawHourTabs();
+        RedrawTimeSlotsGrid();
+
+        if (timePickerPopup != null)
+        {
+            timePickerPopup.SetActive(true);
+        }
     }
 
-    private void OnDepartureSlotChanged(int index)
+    private void SafeDestroy(GameObject go)
     {
-        if (index < 0 || index >= departureSlots.Count || currentFlight == null) return;
+        if (go == null) return;
+        go.transform.SetParent(null); // Detach immediately so it doesn't affect active layouts
+        if (Application.isPlaying)
+        {
+            Destroy(go);
+        }
+        else
+        {
+            DestroyImmediate(go);
+        }
+    }
 
-        TimeSlot selectedDepSlot = departureSlots[index];
-        currentFlight.expectedDeparture = selectedDepSlot.GetTimeString();
+    private GameObject CreateHourControlObject(string name, string text)
+    {
+        GameObject go;
+        if (hourTabPrefab != null)
+        {
+            go = Instantiate(hourTabPrefab, hourTabsContainer);
+            go.SetActive(true);
+            go.name = name;
+        }
+        else
+        {
+            go = new GameObject(name);
+            go.transform.SetParent(hourTabsContainer, false);
+            go.AddComponent<Image>().color = chipInactiveBgColor;
+            var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+            txt.transform.SetParent(go.transform, false);
+            txt.fontSize = 16;
+            txt.alignment = TextAlignmentOptions.Center;
+            go.AddComponent<Button>();
+        }
 
-        // Automatically update the suggested arrival slot based on flight duration
+        var textComp = go.GetComponentInChildren<TMP_Text>();
+        if (textComp != null)
+        {
+            textComp.text = text;
+        }
+        return go;
+    }
+
+    private void RedrawHourTabs()
+    {
+        if (hourTabsContainer == null) return;
+
+        // Safely clear previous elements, leaving template if it is in-hierarchy
+        List<GameObject> childrenToDestroy = new List<GameObject>();
+        foreach (Transform child in hourTabsContainer)
+        {
+            if (hourTabPrefab != null && child.gameObject == hourTabPrefab) continue;
+            childrenToDestroy.Add(child.gameObject);
+        }
+
+        foreach (var child in childrenToDestroy)
+        {
+            SafeDestroy(child);
+        }
+
+        // Create Left Arrow (<)
+        GameObject leftArrowGo = CreateHourControlObject("LeftArrow", "<");
+        var leftBtn = leftArrowGo.GetComponent<Button>();
+        var leftLayout = leftArrowGo.GetComponent<LayoutElement>() ?? leftArrowGo.AddComponent<LayoutElement>();
+        leftLayout.preferredWidth = 80;
+        leftLayout.preferredHeight = 40;
+        StylePickerElement(leftArrowGo, false);
+
+        leftBtn.onClick.RemoveAllListeners();
+        leftBtn.onClick.AddListener(() => {
+            if (modalSelectedHour > 6)
+            {
+                modalSelectedHour--;
+                RedrawHourTabs();
+                RedrawTimeSlotsGrid();
+            }
+        });
+
+        // Create Center Hour Text (HOUR: XX:00)
+        GameObject centerHourGo = CreateHourControlObject("CenterHour", $"{modalSelectedHour:D2}:00");
+        var centerBtn = centerHourGo.GetComponent<Button>();
+        if (centerBtn != null) centerBtn.interactable = false;
+        var centerLayout = centerHourGo.GetComponent<LayoutElement>() ?? centerHourGo.AddComponent<LayoutElement>();
+        centerLayout.preferredWidth = 180;
+        centerLayout.preferredHeight = 40;
+        StylePickerElement(centerHourGo, true);
+
+        // Create Right Arrow (>)
+        GameObject rightArrowGo = CreateHourControlObject("RightArrow", ">");
+        var rightBtn = rightArrowGo.GetComponent<Button>();
+        var rightLayout = rightArrowGo.GetComponent<LayoutElement>() ?? rightArrowGo.AddComponent<LayoutElement>();
+        rightLayout.preferredWidth = 80;
+        rightLayout.preferredHeight = 40;
+        StylePickerElement(rightArrowGo, false);
+
+        rightBtn.onClick.RemoveAllListeners();
+        rightBtn.onClick.AddListener(() => {
+            if (modalSelectedHour < 21)
+            {
+                modalSelectedHour++;
+                RedrawHourTabs();
+                RedrawTimeSlotsGrid();
+            }
+        });
+    }
+
+    private void RedrawTimeSlotsGrid()
+    {
+        if (timeSlotsGridContainer == null) return;
+
+        List<GameObject> childrenToDestroy = new List<GameObject>();
+        foreach (Transform child in timeSlotsGridContainer)
+        {
+            if (timeSlotPrefab != null && child.gameObject == timeSlotPrefab) continue;
+            childrenToDestroy.Add(child.gameObject);
+        }
+
+        foreach (var child in childrenToDestroy)
+        {
+            SafeDestroy(child);
+        }
+
+        // Generate dynamic 5-minute slots for the selected hour
+        for (int m = 0; m < 60; m += 5)
+        {
+            int minVal = m;
+            GameObject slotGo;
+            if (timeSlotPrefab != null)
+            {
+                slotGo = Instantiate(timeSlotPrefab, timeSlotsGridContainer);
+                slotGo.SetActive(true);
+            }
+            else
+            {
+                slotGo = new GameObject($"Slot_{minVal:D2}");
+                slotGo.transform.SetParent(timeSlotsGridContainer, false);
+                slotGo.AddComponent<Image>().color = chipInactiveBgColor;
+                var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+                txt.transform.SetParent(slotGo.transform, false);
+                txt.fontSize = 14;
+                txt.alignment = TextAlignmentOptions.Center;
+                slotGo.AddComponent<Button>();
+            }
+
+            var btn = slotGo.GetComponent<Button>();
+            var textComp = slotGo.GetComponentInChildren<TMP_Text>();
+            if (textComp != null)
+            {
+                textComp.text = $"{modalSelectedHour:D2}:{minVal:D2}";
+            }
+
+            bool isSlotSelected = (minVal == modalSelectedMinute);
+            StylePickerElement(slotGo, isSlotSelected);
+
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(() => {
+                modalSelectedMinute = minVal;
+                RedrawTimeSlotsGrid();
+            });
+        }
+    }
+
+    private void StylePickerElement(GameObject element, bool isSelected)
+    {
+        var img = element.GetComponent<Image>();
+        if (img != null)
+        {
+            img.color = isSelected ? chipActiveBgColor : chipInactiveBgColor;
+        }
+        var txt = element.GetComponentInChildren<TMP_Text>();
+        if (txt != null)
+        {
+            txt.color = isSelected ? chipActiveTextColor : chipInactiveTextColor;
+            txt.fontStyle = isSelected ? FontStyles.Bold : FontStyles.Normal;
+        }
+    }
+
+    private void ConfirmTimePickerSelection()
+    {
+        if (isPickingDepartureTime)
+        {
+            tempDepHour = modalSelectedHour;
+            tempDepMinute = modalSelectedMinute;
+
+            // Maintain modern gameplay flow: Auto-adjust recommended Arrival slot when Departure is modified!
+            if (TimeSlotManager.Instance != null && currentFlight != null)
+            {
+                TimeSlot depSlot = TimeSlotManager.Instance.GetTimeSlot(currentFlight.fromAirport, tempDepHour, tempDepMinute);
+                if (depSlot == null) depSlot = new TimeSlot(tempDepHour, tempDepMinute);
+
+                TimeSlot suggestedArrival = TimeSlotManager.Instance.GetSuggestedLandingSlot(currentFlight.toAirport, depSlot, currentFlight.flightDurationMinutes);
+                if (suggestedArrival != null)
+                {
+                    tempArrHour = suggestedArrival.hours;
+                    tempArrMinute = suggestedArrival.minutes;
+                }
+            }
+        }
+        else
+        {
+            tempArrHour = modalSelectedHour;
+            tempArrMinute = modalSelectedMinute;
+        }
+
+        RefreshHeaderExpectedTimes();
+        RefreshInfoRowsDisplay();
+        timePickerPopup.SetActive(false);
+    }
+
+    // ==========================================
+    // GATE PICKER POPUP FLOW
+    // ==========================================
+
+    private void OpenGatePicker()
+    {
+        CloseAllPopups();
+        modalSelectedGate = tempGate;
+        RedrawGatePicker();
+        if (gatePickerPopup != null) gatePickerPopup.SetActive(true);
+    }
+
+    private void RedrawGatePicker()
+    {
+        if (gateCardsContainer == null) return;
+
+        foreach (Transform child in gateCardsContainer)
+        {
+            if (gateCardPrefab != null && child.gameObject == gateCardPrefab) continue;
+            Destroy(child.gameObject);
+        }
+
+        string[] gates = { "Gate A1", "Gate A2", "Gate A3", "Gate A4", "Gate A5", "Gate B1", "Gate B2", "Gate B3" };
+        foreach (string gate in gates)
+        {
+            string gateName = gate;
+            GameObject cardGo;
+            if (gateCardPrefab != null)
+            {
+                cardGo = Instantiate(gateCardPrefab, gateCardsContainer);
+                cardGo.SetActive(true);
+            }
+            else
+            {
+                cardGo = new GameObject(gateName);
+                cardGo.transform.SetParent(gateCardsContainer, false);
+                cardGo.AddComponent<Image>().color = chipInactiveBgColor;
+                var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+                txt.transform.SetParent(cardGo.transform, false);
+                txt.fontSize = 14;
+                txt.alignment = TextAlignmentOptions.Center;
+                cardGo.AddComponent<Button>();
+            }
+
+            var btn = cardGo.GetComponent<Button>();
+            var textComp = cardGo.GetComponentInChildren<TMP_Text>();
+            if (textComp != null)
+            {
+                textComp.text = gateName;
+            }
+
+            bool isSelected = (gateName == modalSelectedGate);
+            StylePickerElement(cardGo, isSelected);
+
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(() => {
+                modalSelectedGate = gateName;
+                RedrawGatePicker();
+            });
+        }
+    }
+
+    private void ConfirmGatePickerSelection()
+    {
+        tempGate = modalSelectedGate;
+        RefreshInfoRowsDisplay();
+        gatePickerPopup.SetActive(false);
+    }
+
+    // ==========================================
+    // RUNWAY PICKER POPUP FLOW
+    // ==========================================
+
+    private void OpenRunwayPicker()
+    {
+        CloseAllPopups();
+        modalSelectedRunway = tempRunway;
+        RedrawRunwayPicker();
+        if (runwayPickerPopup != null) runwayPickerPopup.SetActive(true);
+    }
+
+    private void RedrawRunwayPicker()
+    {
+        if (runwayCardsContainer == null) return;
+
+        foreach (Transform child in runwayCardsContainer)
+        {
+            if (runwayCardPrefab != null && child.gameObject == runwayCardPrefab) continue;
+            Destroy(child.gameObject);
+        }
+
+        string[] runways = { "Runway 09L", "Runway 09R", "Runway 27L", "Runway 27R" };
+        foreach (string runway in runways)
+        {
+            string runwayName = runway;
+            GameObject cardGo;
+            if (runwayCardPrefab != null)
+            {
+                cardGo = Instantiate(runwayCardPrefab, runwayCardsContainer);
+                cardGo.SetActive(true);
+            }
+            else
+            {
+                cardGo = new GameObject(runwayName);
+                cardGo.transform.SetParent(runwayCardsContainer, false);
+                cardGo.AddComponent<Image>().color = chipInactiveBgColor;
+                var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
+                txt.transform.SetParent(cardGo.transform, false);
+                txt.fontSize = 14;
+                txt.alignment = TextAlignmentOptions.Center;
+                cardGo.AddComponent<Button>();
+            }
+
+            var btn = cardGo.GetComponent<Button>();
+            var textComp = cardGo.GetComponentInChildren<TMP_Text>();
+            if (textComp != null)
+            {
+                textComp.text = runwayName;
+            }
+
+            bool isSelected = (runwayName == modalSelectedRunway);
+            StylePickerElement(cardGo, isSelected);
+
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(() => {
+                modalSelectedRunway = runwayName;
+                RedrawRunwayPicker();
+            });
+        }
+    }
+
+    private void ConfirmRunwayPickerSelection()
+    {
+        tempRunway = modalSelectedRunway;
+        RefreshInfoRowsDisplay();
+        runwayPickerPopup.SetActive(false);
+    }
+
+    // ==========================================
+    // FINAL SAVE AND CANCEL ACTIONS
+    // ==========================================
+
+    private void ApproveAllChanges()
+    {
+        if (currentFlight == null) return;
+
+        // Update main data model
+        currentFlight.status = "Pending Approval"; // Waiting for destination approval
+        currentFlight.gate = tempGate;
+        currentFlight.runway = tempRunway;
+        currentFlight.landingApproved = false; // Must be approved by destination airport
+
+        // Update Time Management with TimeSlotManager bookings
         if (TimeSlotManager.Instance != null)
         {
-            TimeSlot suggestedArrival = TimeSlotManager.Instance.GetSuggestedLandingSlot(currentFlight.toAirport, selectedDepSlot, currentFlight.flightDurationMinutes);
-            if (suggestedArrival != null)
-            {
-                currentFlight.expectedArrival = suggestedArrival.GetTimeString();
-                // Re-populate and select the new expected arrival slot
-                PopulateArrivalDropdown();
-            }
-        }
-    }
-
-    private void OnArrivalSlotChanged(int index)
-    {
-        if (index < 0 || index >= arrivalSlots.Count || currentFlight == null) return;
-
-        TimeSlot selectedArrSlot = arrivalSlots[index];
-        currentFlight.expectedArrival = selectedArrSlot.GetTimeString();
-    }
-
-    private void ApproveFlight()
-    {
-        if (currentFlight != null && TimeSlotManager.Instance != null)
-        {
-            // Release existing bookings if any
+            // Release original takeoff booking if any
             if (currentFlight.takeoffSlot != null)
             {
                 TimeSlotManager.Instance.ReleaseTimeSlot(currentFlight.fromAirport, currentFlight.takeoffSlot);
             }
+            // Release original landing booking if any
             if (currentFlight.landingSlot != null)
             {
                 TimeSlotManager.Instance.ReleaseTimeSlot(currentFlight.toAirport, currentFlight.landingSlot);
             }
 
-            // Get selected slots from dropdowns
-            TimeSlot finalDepSlot = null;
-            if (expectedDepartureDropdown != null && expectedDepartureDropdown.value >= 0 && expectedDepartureDropdown.value < departureSlots.Count)
+            // 1. Immediately reserve and book the takeoff slot at origin
+            TimeSlot takeoffSlot = TimeSlotManager.Instance.GetTimeSlot(currentFlight.fromAirport, tempDepHour, tempDepMinute);
+            if (takeoffSlot == null)
             {
-                finalDepSlot = departureSlots[expectedDepartureDropdown.value];
+                takeoffSlot = new TimeSlot(tempDepHour, tempDepMinute);
             }
+            TimeSlotManager.Instance.BookTimeSlot(currentFlight.fromAirport, takeoffSlot, currentFlight.flightName);
+            currentFlight.takeoffSlot = takeoffSlot;
+            currentFlight.departureTime = takeoffSlot.GetTimeString();
+            currentFlight.expectedDeparture = takeoffSlot.GetTimeString();
 
-            TimeSlot finalArrSlot = null;
-            if (expectedArrivalDropdown != null && expectedArrivalDropdown.value >= 0 && expectedArrivalDropdown.value < arrivalSlots.Count)
+            // 2. Request the landing slot at destination (assign reference but DO NOT book it officially yet)
+            TimeSlot landingSlot = TimeSlotManager.Instance.GetTimeSlot(currentFlight.toAirport, tempArrHour, tempArrMinute);
+            if (landingSlot == null)
             {
-                finalArrSlot = arrivalSlots[expectedArrivalDropdown.value];
+                landingSlot = new TimeSlot(tempArrHour, tempArrMinute);
             }
-
-            // Book new slots
-            if (finalDepSlot != null)
-            {
-                TimeSlotManager.Instance.BookTimeSlot(currentFlight.fromAirport, finalDepSlot, currentFlight.flightName);
-                currentFlight.takeoffSlot = finalDepSlot;
-                currentFlight.departureTime = finalDepSlot.GetTimeString();
-                currentFlight.expectedDeparture = finalDepSlot.GetTimeString();
-            }
-
-            if (finalArrSlot != null)
-            {
-                TimeSlotManager.Instance.BookTimeSlot(currentFlight.toAirport, finalArrSlot, currentFlight.flightName);
-                currentFlight.landingSlot = finalArrSlot;
-                currentFlight.arrivalTime = finalArrSlot.GetTimeString();
-                currentFlight.expectedArrival = finalArrSlot.GetTimeString();
-            }
-
-            currentFlight.landingApproved = true;
-            currentFlight.status = "Approved";
-
-            if (statusText != null)
-            {
-                statusText.text = $"Status: {currentFlight.status}";
-            }
-
-            if (departureTimeText != null)
-            {
-                departureTimeText.text = currentFlight.takeoffSlot != null ? $"Departure: {currentFlight.takeoffSlot.GetTimeString()}" : "Departure: Not scheduled";
-            }
-
-            if (arrivalTimeText != null)
-            {
-                arrivalTimeText.text = currentFlight.landingSlot != null ? $"Arrival: {currentFlight.landingSlot.GetTimeString()}" : "Arrival: Not scheduled";
-            }
-
-            // Refresh the dropdown labels to show they are booked
-            PopulateDropdowns();
-
-            // Refresh flights display at current airport
-            if (currentFlight.currentAirport != null)
-            {
-                currentFlight.currentAirport.DisplayFlights();
-            }
+            currentFlight.landingSlot = landingSlot;
+            currentFlight.arrivalTime = landingSlot.GetTimeString();
+            currentFlight.expectedArrival = landingSlot.GetTimeString();
         }
+
+        // Instantly refresh the airport's scroll list of flight cards
+        if (currentFlight.currentAirport != null)
+        {
+            currentFlight.currentAirport.DisplayFlights();
+        }
+
+        // Also refresh active Schedule panel if open
+        if (AirportSchedulePanel.Instance != null && AirportSchedulePanel.Instance.panelContainer.activeSelf)
+        {
+            AirportSchedulePanel.Instance.RefreshAll();
+        }
+
+        ClosePanel();
     }
 
     public void ClosePanel()
     {
+        CloseAllPopups();
         if (panelContainer != null)
         {
             panelContainer.SetActive(false);
+        }
+
+        // Clear the selected flight selection and refresh active flight cards
+        FlightInfoUI.selectedFlight = null;
+        var activeCards = FindObjectsByType<FlightInfoUI>(FindObjectsInactive.Exclude);
+        foreach (var card in activeCards)
+        {
+            card.UpdateSelectionVisuals();
         }
     }
 }

@@ -18,6 +18,7 @@ public class Flight
     public string expectedArrival = "NA";
     public string gate = "NA";
     public string runway = "NA";
+    public string priority = "Normal";
 
     // Time management
     public TimeSlot takeoffSlot; // When flight takes off

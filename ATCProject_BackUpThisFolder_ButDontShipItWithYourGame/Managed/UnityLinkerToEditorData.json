@@ -983,6 +983,12 @@
             "icon": null
           },
           {
+            "name": "Rigidbody",
+            "scenes": [],
+            "dependencyType": 0,
+            "icon": null
+          },
+          {
             "name": "Required by PhysicsBackendPhysX Module",
             "scenes": [],
             "dependencyType": 2,
@@ -1011,6 +1017,14 @@
       {
         "name": "Physics2D",
         "dependencies": [
+          {
+            "name": "CircleCollider2D",
+            "scenes": [
+              "Assets/Scenes/SampleScene.unity"
+            ],
+            "dependencyType": 0,
+            "icon": null
+          },
           {
             "name": "Collider2D",
             "scenes": [],
@@ -1742,6 +1756,12 @@
             "icon": null
           },
           {
+            "name": "TextMesh",
+            "scenes": [],
+            "dependencyType": 0,
+            "icon": null
+          },
+          {
             "name": "Required by IMGUI Module",
             "scenes": [],
             "dependencyType": 2,
@@ -1809,7 +1829,9 @@
           },
           {
             "name": "CanvasGroup",
-            "scenes": [],
+            "scenes": [
+              "Assets/Scenes/SampleScene.unity"
+            ],
             "dependencyType": 0,
             "icon": null
           },
