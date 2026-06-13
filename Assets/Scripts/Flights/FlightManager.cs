@@ -24,6 +24,12 @@ public class FlightManager : MonoBehaviour
         allFlights.Add(flight);
     }
 
+    public void ClearAllFlights()
+    {
+        allFlights.Clear();
+        Debug.Log("Flight list cleared.");
+    }
+
     public List<Flight> GetFlightsAtAirport(Airport airport)
     {
         return allFlights.FindAll(f => f.currentAirport == airport);

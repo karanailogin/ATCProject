@@ -757,7 +757,8 @@ PlayerSettings:
   XboxOneOverrideIdentityName: 
   XboxOneOverrideIdentityPublisher: 
   vrEditorSettings: {}
-  cloudServicesEnabled: {}
+  cloudServicesEnabled:
+    Purchasing: 0
   luminIcon:
     m_Name: 
     m_ModelFolderPath: 
@@ -780,11 +781,11 @@ PlayerSettings:
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
   enableDirectStorage: 0
-  cloudProjectId: 94e6063c-3beb-458b-97da-05a70b80bace
+  cloudProjectId: ef498abf-a3de-4434-a784-a219e86b454a
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
   projectName: ATCProject
-  organizationId: malikaran740
+  organizationId: karanailogin
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}

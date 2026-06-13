@@ -48,6 +48,14 @@ public class Airport : MonoBehaviour
             return;
         }
 
+        EnsurePanelVisible(flightListContent);
+
+        if (FlightManager.Instance == null)
+        {
+            Debug.LogError("FlightManager instance is not available. Make sure a FlightManager exists in the scene.");
+            return;
+        }
+
         // Clear previous list
         foreach (Transform child in flightListContent)
         {
@@ -77,6 +85,21 @@ public class Airport : MonoBehaviour
             {
                 Debug.LogError("FlightInfoUI script not found on prefab!");
             }
+        }
+    }
+
+    private void EnsurePanelVisible(Transform panelTransform)
+    {
+        Transform current = panelTransform;
+
+        while (current != null)
+        {
+            if (!current.gameObject.activeSelf)
+            {
+                current.gameObject.SetActive(true);
+            }
+
+            current = current.parent;
         }
     }
 }

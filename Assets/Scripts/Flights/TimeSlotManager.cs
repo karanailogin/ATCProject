@@ -54,6 +54,19 @@ public class TimeSlotManager : MonoBehaviour
         return new List<TimeSlot>();
     }
 
+    public TimeSlot GetTimeSlot(string airportCode, int hour, int minute)
+    {
+        List<TimeSlot> slots = GetAvailableSlots(airportCode);
+        foreach (TimeSlot slot in slots)
+        {
+            if (slot.hours == hour && slot.minutes == minute)
+            {
+                return slot;
+            }
+        }
+        return null;
+    }
+
     public bool BookTimeSlot(string airportCode, TimeSlot slot, string flightName)
     {
         if (slot.isBooked)
