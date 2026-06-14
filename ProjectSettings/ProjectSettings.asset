@@ -781,11 +781,11 @@ PlayerSettings:
   activeInputHandler: 1
   windowsGamepadBackendHint: 0
   enableDirectStorage: 0
-  cloudProjectId: ef498abf-a3de-4434-a784-a219e86b454a
+  cloudProjectId: 1ccf9cee-f5b5-42a3-9930-abf20884ee1c
   framebufferDepthMemorylessMode: 0
   qualitySettingsNames: []
   projectName: ATCProject
-  organizationId: karanailogin
+  organizationId: unity_1a126bb4127ea7c4243e
   cloudEnabled: 0
   legacyClampBlendShapeWeights: 0
   hmiLoadingImage: {fileID: 0}

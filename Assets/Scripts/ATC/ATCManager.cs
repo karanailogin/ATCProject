@@ -27,7 +27,17 @@ public class ATCManager : MonoBehaviour
     void Start()
     {
         Debug.Log("[ATCManager] Start() called. Hooking up ViewScheduleButton click listener...");
-        var btnGo = GameObject.Find("MainCanvas/AirportInfoPanel/AirportNamePanel/ViewScheduleButton");
+        GameObject btnGo = null;
+        var canvasGo = GameObject.Find("MainCanvas");
+        if (canvasGo != null)
+        {
+            var btnTransform = canvasGo.transform.Find("AirportInfoPanel/AirportNamePanel/ViewScheduleButton");
+            if (btnTransform != null)
+            {
+                btnGo = btnTransform.gameObject;
+            }
+        }
+
         if (btnGo != null)
         {
             Debug.Log("[ATCManager] ViewScheduleButton GameObject found successfully.");

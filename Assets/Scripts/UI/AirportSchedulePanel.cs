@@ -24,6 +24,9 @@ public class AirportSchedulePanel : MonoBehaviour
     [Header("Back to Map Button")]
     public Button closeButton;
 
+    [Header("Airport Info Panel Reference")]
+    public GameObject airportInfoPanel;
+
     [Header("Visual Colors")]
     public Color colorAvailable = new Color(0.13f, 0.77f, 0.36f); // Modern Green (#22C55E)
     public Color colorConfirmed = new Color(0.23f, 0.51f, 0.96f); // Blue (Reserved - #3B82F6)
@@ -73,6 +76,19 @@ public class AirportSchedulePanel : MonoBehaviour
             Debug.LogWarning("[AirportSchedulePanel] Duplicate instance detected. Destroying duplicate GameObject.");
             Destroy(gameObject);
             return;
+        }
+
+        if (airportInfoPanel == null)
+        {
+            var canvasGo = GameObject.Find("MainCanvas");
+            if (canvasGo != null)
+            {
+                var t = canvasGo.transform.Find("AirportInfoPanel");
+                if (t != null)
+                {
+                    airportInfoPanel = t.gameObject;
+                }
+            }
         }
 
         if (panelContainer != null && !isOpeningProgrammatically)
@@ -154,6 +170,19 @@ public class AirportSchedulePanel : MonoBehaviour
         selectedSlotFlight = null;
 
         RefreshAll();
+
+        if (airportInfoPanel != null)
+        {
+            airportInfoPanel.SetActive(false);
+        }
+        if (PendingFlightsPanel.Instance != null)
+        {
+            PendingFlightsPanel.Instance.gameObject.SetActive(false);
+        }
+        if (ActiveFlightsPanel.Instance != null)
+        {
+            ActiveFlightsPanel.Instance.gameObject.SetActive(false);
+        }
 
         if (panelContainer != null)
         {
@@ -766,19 +795,26 @@ public class AirportSchedulePanel : MonoBehaviour
             // Arrivals to current airport
             if (f.toAirport == currentAirport.airportName && f.landingSlot != null && f.landingSlot.hours == hour && f.landingSlot.minutes == minute)
             {
-                if (f.status == "Pending Approval" || f.landingApproved)
-                {
-                    matchedFlights.Add(f);
-                    if (primaryFlight == null) { primaryFlight = f; }
-                }
+                matchedFlights.Add(f);
+                if (primaryFlight == null) { primaryFlight = f; }
             }
         }
 
         // Conflict evaluation
         if (matchedFlights.Count > 1)
         {
-            img.color = colorConflict;
-            tmp.text = $"<size=20><b>{hour:D2}:{minute:D2}</b></size>\n\n<color=#FFFFFF><size=13><b>CONFLICT ({matchedFlights.Count})</b></size></color>\n<size=11>Multiple Bookings</size>" +
+            img.color = colorBlocked; // Mark red (#EF4444)
+            
+            string conflictLines = "";
+            foreach (var f in matchedFlights)
+            {
+                string opType = (f.fromAirport == currentAirport.airportName) ? "DEP" : "ARR";
+                conflictLines += $"{hour:D2}:{minute:D2} {opType} {f.flightName} [!]\n";
+            }
+
+            tmp.text = $"<size=18><b>{hour:D2}:{minute:D2}</b></size>\n\n" +
+                       $"<size=12><b>{conflictLines}</b></size>\n" +
+                       $"<color=#FFFFFF><size=11><b>DEP SLOT CONFLICT</b></size></color>" +
                        (isSlotSelectedCard ? "\n<b>[SELECTED]</b>" : "");
             return;
         }
@@ -842,11 +878,8 @@ public class AirportSchedulePanel : MonoBehaviour
             }
             if (f.toAirport == currentAirport.airportName && f.landingSlot != null && f.landingSlot.hours == hour && f.landingSlot.minutes == minute)
             {
-                if (f.status == "Pending Approval" || f.landingApproved)
-                {
-                    selectedSlotFlight = f;
-                    break;
-                }
+                selectedSlotFlight = f;
+                break;
             }
         }
 
@@ -867,7 +900,7 @@ public class AirportSchedulePanel : MonoBehaviour
                 {
                     statusStr = "Reserved / Confirmed Arrival";
                 }
-                else if (selectedSlotFlight.status == "Pending Approval")
+                else
                 {
                     statusStr = "Awaiting Landing Approval";
                 }
@@ -972,7 +1005,7 @@ public class AirportSchedulePanel : MonoBehaviour
                 }
             }
 
-            selectedSlotFlight.status = "Boarding"; // Reset flight status back to takeoff preparation
+            selectedSlotFlight.state = FlightState.FlightCreated; // Reset flight state back to takeoff preparation
             selectedSlotFlight.landingApproved = false;
             selectedSlotFlight.expectedArrival = "NA";
             selectedSlotFlight.arrivalTime = "NA";
@@ -1009,19 +1042,16 @@ public class AirportSchedulePanel : MonoBehaviour
         }
 
         List<Flight> allFlights = new List<Flight>();
-        var allAirports = FindObjectsByType<Airport>(FindObjectsInactive.Include);
-        foreach (var ap in allAirports)
+        if (FlightManager.Instance != null)
         {
-            if (FlightManager.Instance != null)
-            {
-                allFlights.AddRange(FlightManager.Instance.GetFlightsAtAirport(ap));
-            }
+            allFlights.AddRange(FlightManager.Instance.AllFlights);
         }
 
         List<Flight> incomingRequests = new List<Flight>();
         foreach (Flight f in allFlights)
         {
-            if (f.toAirport == currentAirport.airportName && f.status == "Pending Approval")
+            if (f.toAirport == currentAirport.airportName && 
+                !f.landingApproved && f.state != FlightState.Diverted)
             {
                 incomingRequests.Add(f);
             }
@@ -1062,6 +1092,17 @@ public class AirportSchedulePanel : MonoBehaviour
                 acceptBtn.onClick.AddListener(() => ProcessAccept(f));
             }
         }
+
+        // Force layout rebuild so requestsContainer (Content) scales correctly to show the card
+        if (requestsContainer != null)
+        {
+            var rt = requestsContainer.GetComponent<RectTransform>();
+            if (rt != null)
+            {
+                Canvas.ForceUpdateCanvases();
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rt);
+            }
+        }
     }
 
     private void CreateNoRequestsPlaceholder()
@@ -1077,18 +1118,43 @@ public class AirportSchedulePanel : MonoBehaviour
 
     private GameObject CreateDefaultRequestCard(Flight f)
     {
-        var go = new GameObject($"RequestCard_{f.flightName}");
+        // Create the card GameObject with RectTransform from the start
+        var go = new GameObject($"RequestCard_{f.flightName}", typeof(RectTransform));
         go.transform.SetParent(requestsContainer, false);
 
-        var rt = go.AddComponent<RectTransform>();
+        var rt = go.GetComponent<RectTransform>();
         rt.sizeDelta = new Vector2(340, 175); // Premium mobile request card dimensions
 
+        // Add LayoutElement so VerticalLayoutGroup with childControlHeight knows the exact size
+        var le = go.AddComponent<LayoutElement>();
+        le.preferredWidth = 340f;
+        le.preferredHeight = 175f;
+        le.minWidth = 340f;
+        le.minHeight = 175f;
+
+        // Use our beautifully styled RoundedRect sprite if available
         var img = go.AddComponent<Image>();
         img.color = new Color(0.12f, 0.12f, 0.14f, 1.0f);
+        Sprite roundedSprite = null;
+        var sceneImgs = FindObjectsByType<Image>(FindObjectsInactive.Include);
+        foreach (var simg in sceneImgs)
+        {
+            if (simg.sprite != null && simg.sprite.name == "RoundedRect")
+            {
+                roundedSprite = simg.sprite;
+                break;
+            }
+        }
+        if (roundedSprite != null)
+        {
+            img.sprite = roundedSprite;
+            img.type = Image.Type.Sliced;
+        }
 
-        var txtGo = new GameObject("Text");
+        // TEXT FIELD
+        var txtGo = new GameObject("Text", typeof(RectTransform));
         txtGo.transform.SetParent(go.transform, false);
-        var txtRt = txtGo.AddComponent<RectTransform>();
+        var txtRt = txtGo.GetComponent<RectTransform>();
         txtRt.anchorMin = new Vector2(0, 0);
         txtRt.anchorMax = new Vector2(1, 1);
         txtRt.offsetMin = new Vector2(20, 52); // Extra padding for beautiful breathing room
@@ -1104,42 +1170,72 @@ public class AirportSchedulePanel : MonoBehaviour
                    $"Priority: {f.priority}";
 
         // REJECT BUTTON
-        var rBtnGo = new GameObject("RejectButton");
+        var rBtnGo = new GameObject("RejectButton", typeof(RectTransform));
         rBtnGo.transform.SetParent(go.transform, false);
-        var rRt = rBtnGo.AddComponent<RectTransform>();
+        var rRt = rBtnGo.GetComponent<RectTransform>();
         rRt.anchorMin = new Vector2(0, 0);
         rRt.anchorMax = new Vector2(0.5f, 0);
         rRt.pivot = new Vector2(0.5f, 0);
-        rRt.anchoredPosition = new Vector2(20, 12);
+        rRt.anchoredPosition = new Vector2(90, 12); // Positioned correctly within the left half
         rRt.sizeDelta = new Vector2(130, 34); // Scaled for mobile fingers
 
-        rBtnGo.AddComponent<Image>().color = new Color(0.24f, 0.24f, 0.27f);
+        var rImg = rBtnGo.AddComponent<Image>();
+        rImg.color = new Color(0.24f, 0.24f, 0.27f);
+        if (roundedSprite != null)
+        {
+            rImg.sprite = roundedSprite;
+            rImg.type = Image.Type.Sliced;
+        }
+
         rBtnGo.AddComponent<Button>();
-        var rTxt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
-        rTxt.transform.SetParent(rBtnGo.transform, false);
+        
+        var rTxtGo = new GameObject("Text", typeof(RectTransform));
+        rTxtGo.transform.SetParent(rBtnGo.transform, false);
+        var rTxtRt = rTxtGo.GetComponent<RectTransform>();
+        rTxtRt.anchorMin = Vector2.zero;
+        rTxtRt.anchorMax = Vector2.one;
+        rTxtRt.sizeDelta = Vector2.zero;
+        
+        var rTxt = rTxtGo.AddComponent<TextMeshProUGUI>();
         rTxt.text = "REJECT";
         rTxt.fontSize = 12; // Bold, clean & readable
         rTxt.fontStyle = FontStyles.Bold;
         rTxt.alignment = TextAlignmentOptions.Center;
+        rTxt.color = Color.white;
 
         // ACCEPT BUTTON
-        var aBtnGo = new GameObject("AcceptButton");
+        var aBtnGo = new GameObject("AcceptButton", typeof(RectTransform));
         aBtnGo.transform.SetParent(go.transform, false);
-        var aRt = aBtnGo.AddComponent<RectTransform>();
+        var aRt = aBtnGo.GetComponent<RectTransform>();
         aRt.anchorMin = new Vector2(0.5f, 0);
         aRt.anchorMax = new Vector2(1, 0);
         aRt.pivot = new Vector2(0.5f, 0);
-        aRt.anchoredPosition = new Vector2(-20, 12);
+        aRt.anchoredPosition = new Vector2(-90, 12); // Positioned correctly within the right half
         aRt.sizeDelta = new Vector2(130, 34); // Scaled for mobile fingers
 
-        aBtnGo.AddComponent<Image>().color = colorAvailable;
+        var aImg = aBtnGo.AddComponent<Image>();
+        aImg.color = colorAvailable;
+        if (roundedSprite != null)
+        {
+            aImg.sprite = roundedSprite;
+            aImg.type = Image.Type.Sliced;
+        }
+
         aBtnGo.AddComponent<Button>();
-        var aTxt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
-        aTxt.transform.SetParent(aBtnGo.transform, false);
+
+        var aTxtGo = new GameObject("Text", typeof(RectTransform));
+        aTxtGo.transform.SetParent(aBtnGo.transform, false);
+        var aTxtRt = aTxtGo.GetComponent<RectTransform>();
+        aTxtRt.anchorMin = Vector2.zero;
+        aTxtRt.anchorMax = Vector2.one;
+        aTxtRt.sizeDelta = Vector2.zero;
+
+        var aTxt = aTxtGo.AddComponent<TextMeshProUGUI>();
         aTxt.text = "ACCEPT";
         aTxt.fontSize = 12; // Bold, clean & readable
         aTxt.fontStyle = FontStyles.Bold;
         aTxt.alignment = TextAlignmentOptions.Center;
+        aTxt.color = Color.white;
 
         return go;
     }
@@ -1172,7 +1268,6 @@ public class AirportSchedulePanel : MonoBehaviour
         }
 
         f.landingApproved = true;
-        f.status = "Approved";
 
         Debug.Log($"[AirportSchedulePanel] Flight {f.flightName} arrival slot successfully APPROVED at {currentAirport.airportName}.");
 
@@ -1206,8 +1301,8 @@ public class AirportSchedulePanel : MonoBehaviour
             f.landingSlot = null;
         }
 
-        f.status = "Rejected";
         f.landingApproved = false;
+        f.state = FlightState.FlightCreated;
         f.expectedArrival = "NA";
         f.arrivalTime = "NA";
 
@@ -1232,6 +1327,15 @@ public class AirportSchedulePanel : MonoBehaviour
         else
         {
             Debug.LogWarning("[AirportSchedulePanel] Cannot close panel because panelContainer is null!");
+        }
+
+        if (airportInfoPanel != null)
+        {
+            airportInfoPanel.SetActive(true);
+            if (ATCManager.Instance != null && ATCManager.Instance.CurrentAirport != null)
+            {
+                ATCManager.Instance.CurrentAirport.DisplayFlights();
+            }
         }
     }
 }

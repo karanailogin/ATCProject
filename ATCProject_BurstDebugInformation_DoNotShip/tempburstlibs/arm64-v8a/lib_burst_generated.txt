@@ -10,6 +10,7 @@ Library: D:\01_UnityProjects\GitProjects\ATCProject\Temp\BurstOutput\tempburstli
 --target-framework=NetFramework
 --generate-link-xml=Temp\burst.link.xml
 --temp-folder=D:\01_UnityProjects\GitProjects\ATCProject\Temp\Burst
+--debug=Full
 --key-folder=C:/Unity/6000.4.8f1/Editor/Data/PlaybackEngines/AndroidPlayer
 --decode-folder=D:\01_UnityProjects\GitProjects\ATCProject\Library\Burst
 --output=D:\01_UnityProjects\GitProjects\ATCProject\Temp\BurstOutput\tempburstlibs\arm64-v8a\lib_burst_generated
@@ -128,6 +129,7 @@ Library: D:\01_UnityProjects\GitProjects\ATCProject\Temp\BurstOutput\tempburstli
 --float-mode=Fast
 --generate-link-xml=Temp\burst.link.xml
 --temp-folder=D:\01_UnityProjects\GitProjects\ATCProject\Temp\Burst
+--debug=Full
 --key-folder=C:/Unity/6000.4.8f1/Editor/Data/PlaybackEngines/AndroidPlayer
 --decode-folder=D:\01_UnityProjects\GitProjects\ATCProject\Library\Burst
 --output=D:\01_UnityProjects\GitProjects\ATCProject\Temp\BurstOutput\tempburstlibs\arm64-v8a\lib_burst_generated
@@ -146,6 +148,7 @@ Library: D:\01_UnityProjects\GitProjects\ATCProject\Temp\BurstOutput\tempburstli
 --target-framework=NetFramework
 --generate-link-xml=Temp\burst.link.xml
 --temp-folder=D:\01_UnityProjects\GitProjects\ATCProject\Temp\Burst
+--debug=Full
 --key-folder=C:/Unity/6000.4.8f1/Editor/Data/PlaybackEngines/AndroidPlayer
 --decode-folder=D:\01_UnityProjects\GitProjects\ATCProject\Library\Burst
 --output=D:\01_UnityProjects\GitProjects\ATCProject\Temp\BurstOutput\tempburstlibs\arm64-v8a\lib_burst_generated

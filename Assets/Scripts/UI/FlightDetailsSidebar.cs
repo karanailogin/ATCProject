@@ -73,7 +73,18 @@ public class FlightDetailsSidebar : MonoBehaviour
             currentFlight.landingApproved = true;
             if (statusText != null)
             {
-                statusText.text = $"Status: {currentFlight.status} (Approved)";
+                statusText.text = $"Status: {currentFlight.status}";
+            }
+        }
+    }
+
+    private void Update()
+    {
+        if (panelContainer != null && panelContainer.activeSelf && currentFlight != null)
+        {
+            if (statusText != null)
+            {
+                statusText.text = $"Status: {currentFlight.status}";
             }
         }
     }

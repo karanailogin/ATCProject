@@ -1,0 +1,7 @@
+--- RUNTIME DIAGNOSIS START ---
+TopBarController.Instance is found.
+  attentionButton field: True
+FindAnyObjectByType<PendingFlightsPanel>(Include) found: 'PendingFlightsPanel'
+  activeSelf: False
+  activeInHierarchy: False
+--- RUNTIME DIAGNOSIS END ---

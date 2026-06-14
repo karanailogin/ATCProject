@@ -22,27 +22,50 @@ public class FlightSpawner : MonoBehaviour
             return;
         }
 
-        AddFlight(0, "AI101", "MUM", "DEL", "Boarding", 120, "Boeing 737", "NA", "NA", "NA", "NA", mumbaiAirport);
-        AddFlight(1, "UK202", "DEL", "BLR", "On Time", 95, "Airbus A320", "NA", "NA", "NA", "NA", delhiAirport);
-        AddFlight(2, "SG303", "BLR", "MUM", "Delayed", 150, "Boeing 787", "NA", "NA", "NA", "NA", bangaloreAirport);
+        // Determine starting base hour/minute from World Clock if available (otherwise default to 6:00)
+        int baseHour = 6;
+        int baseMinute = 0;
+        if (WorldClockManager.Instance != null)
+        {
+            // First flight scheduled 30 minutes after current world clock time
+            System.DateTime firstSpawnTime = WorldClockManager.Instance.CurrentTime.AddMinutes(30);
+            baseHour = firstSpawnTime.Hour;
+            baseMinute = firstSpawnTime.Minute;
+            Debug.Log($"[FlightSpawner] World clock found. First flight planned at {baseHour:D2}:{baseMinute:D2} (30 mins from {WorldClockManager.Instance.CurrentTime:HH:mm})");
+        }
+        else
+        {
+            // Fallback: 30 minutes after FlightManager's baseline (06:00) -> 06:30
+            baseHour = 6;
+            baseMinute = 30;
+            Debug.Log("[FlightSpawner] WorldClockManager.Instance not found. Defaulting first flight to 06:30.");
+        }
 
-        AddFlight(3, "AI102", "MUM", "DEL", "Boarding", 120, "Boeing 737", "NA", "NA", "NA", "NA", mumbaiAirport);
-        AddFlight(4, "UK203", "DEL", "BLR", "On Time", 95, "Airbus A320", "NA", "NA", "NA", "NA", delhiAirport);
-        AddFlight(5, "SG304", "BLR", "MUM", "Delayed", 150, "Boeing 787", "NA", "NA", "NA", "NA", bangaloreAirport);
+        // Add dynamically timed demo flights starting 30 minutes from the game world clock
+        AddFlightWithTime(0, "AI101", "MUM", "DEL", "On Time", 120, "Boeing 737", "NA", "NA", "NA", "NA", mumbaiAirport, baseHour, baseMinute);
+        
+        // Schedule subsequent flights with increments to keep scheduling interesting and realistic
+        AddFlightWithTime(1, "UK202", "DEL", "BLR", "On Time", 95, "Airbus A320", "NA", "NA", "NA", "NA", delhiAirport, baseHour + 1, (baseMinute + 15) % 60);
+        AddFlightWithTime(2, "SG303", "BLR", "MUM", "On Time", 150, "Boeing 787", "NA", "NA", "NA", "NA", bangaloreAirport, baseHour + 2, (baseMinute + 30) % 60);
+        AddFlightWithTime(3, "AI102", "MUM", "DEL", "On Time", 120, "Boeing 737", "NA", "NA", "NA", "NA", mumbaiAirport, baseHour + 3, (baseMinute + 45) % 60);
+
+        if (FlightManager.Instance != null)
+        {
+            FlightManager.Instance.RecalculateSlotConflicts();
+        }
 
         Debug.Log("Demo flights spawned for all airports.");
     }
 
-    private static void AddFlight(int index, string flightName, string fromAirport, string toAirport, string status,
+    private static void AddFlightWithTime(int index, string flightName, string fromAirport, string toAirport, string status,
         int durationMinutes, string aircraftType, string departureTime, string arrivalTime,
-        string gate, string runway, Airport airport)
+        string gate, string runway, Airport airport, int hour, int minute)
     {
         Flight flight = new Flight
         {
             flightName = flightName,
             fromAirport = fromAirport,
             toAirport = toAirport,
-            status = status,
             flightDurationMinutes = durationMinutes,
             aircraftType = aircraftType,
             departureTime = departureTime,
@@ -50,9 +73,16 @@ public class FlightSpawner : MonoBehaviour
             gate = gate,
             runway = runway
         };
+        flight.state = FlightState.FlightCreated;
 
-        int hour = 6 + (index % 8);
-        int minute = (index % 4) * 15;
+        // Ensure we handle hour roll-overs safely
+        if (minute >= 60)
+        {
+            hour += minute / 60;
+            minute = minute % 60;
+        }
+        hour = hour % 24;
+
         TimeSlot suggestedDeparture = null;
         
         if (TimeSlotManager.Instance != null)
@@ -94,7 +124,16 @@ public class FlightSpawner : MonoBehaviour
         }
 
         FlightManager.Instance.AddFlightToAirport(flight, airport);
-        Debug.Log("Added demo flight: " + flightName + " to " + airport.airportName);
+        Debug.Log("Added demo flight: " + flightName + " to " + airport.airportName + " at " + flight.departureTime);
+    }
+
+    private static void AddFlight(int index, string flightName, string fromAirport, string toAirport, string status,
+        int durationMinutes, string aircraftType, string departureTime, string arrivalTime,
+        string gate, string runway, Airport airport)
+    {
+        int hour = 6 + (index % 8);
+        int minute = (index % 4) * 15;
+        AddFlightWithTime(index, flightName, fromAirport, toAirport, status, durationMinutes, aircraftType, departureTime, arrivalTime, gate, runway, airport, hour, minute);
     }
 
     public void SpawnDemoFlights()

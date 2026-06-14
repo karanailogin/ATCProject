@@ -15,12 +15,14 @@ public class FlightDetailsPanel : MonoBehaviour
     public TMP_Text aircraftTypeText;
     public TMP_Text durationText;
 
-    [Header("Status Selector")]
-    public Button securityChipButton;
-    public Button boardingChipButton;
-    public Button taxiChipButton;
-    public Button readyChipButton;
-    
+    [Header("Separate Route Details")]
+    public TMP_Text depAirportCodeText;
+    public TMP_Text arrAirportCodeText;
+    public TMP_Text routeArrowText;
+
+    [Header("Flight Status Display")]
+    public TMP_Text flightStatusText;
+
     [Header("Status Styling Colors")]
     public Color chipActiveBgColor = new Color(0.14f, 0.65f, 0.31f); // Emerald Green
     public Color chipInactiveBgColor = new Color(0.18f, 0.18f, 0.20f); // Dark Charcoal
@@ -30,15 +32,19 @@ public class FlightDetailsPanel : MonoBehaviour
     [Header("Editable Info Rows")]
     public Button scheduledDepRowButton;
     public TMP_Text scheduledDepValueText;
+    public UnityEngine.UI.Image scheduledDepValueBg;
+    public TMP_Text conflictWarningText;
 
     public Button scheduledArrRowButton;
     public TMP_Text scheduledArrValueText;
+    public UnityEngine.UI.Image scheduledArrValueBg;
 
-    public Button boardingGateRowButton;
-    public TMP_Text boardingGateValueText;
-
-    public Button assignedRunwayRowButton;
-    public TMP_Text assignedRunwayValueText;
+    [Header("Slot Status Colors")]
+    public Color statusApprovedColor = new Color(0.13f, 0.77f, 0.36f); // Green
+    public Color statusPendingColor = new Color(0.92f, 0.70f, 0.08f);  // Yellow
+    public Color statusRejectedColor = new Color(0.94f, 0.27f, 0.27f); // Red
+    public Color statusConflictColor = new Color(0.98f, 0.45f, 0.09f); // Orange
+    public Color statusNoSlotColor = new Color(0.55f, 0.55f, 0.58f);   // Gray
 
     [Header("Bottom Action Bar Buttons")]
     public Button discardActionBarButton;
@@ -54,22 +60,6 @@ public class FlightDetailsPanel : MonoBehaviour
     public Button timePickerCancelButton;
     public Button timePickerConfirmButton;
 
-    [Header("Gate Picker Popup Modal")]
-    public GameObject gatePickerPopup;
-    public TMP_Text gatePickerTitleText;
-    public Transform gateCardsContainer;
-    public GameObject gateCardPrefab;
-    public Button gatePickerCancelButton;
-    public Button gatePickerConfirmButton;
-
-    [Header("Runway Picker Popup Modal")]
-    public GameObject runwayPickerPopup;
-    public TMP_Text runwayPickerTitleText;
-    public Transform runwayCardsContainer;
-    public GameObject runwayCardPrefab;
-    public Button runwayPickerCancelButton;
-    public Button runwayPickerConfirmButton;
-
     [Header("Panel Containment")]
     public GameObject panelContainer;
 
@@ -82,15 +72,11 @@ public class FlightDetailsPanel : MonoBehaviour
     private int tempDepMinute;
     private int tempArrHour;
     private int tempArrMinute;
-    private string tempGate;
-    private string tempRunway;
 
     // Internal state management for modals
     private bool isPickingDepartureTime;
     private int modalSelectedHour;
     private int modalSelectedMinute;
-    private string modalSelectedGate;
-    private string modalSelectedRunway;
 
     private void Awake()
     {
@@ -105,7 +91,6 @@ public class FlightDetailsPanel : MonoBehaviour
         }
 
         // Initialize button listeners
-        SetupStatusChipListeners();
         SetupInfoRowListeners();
         SetupPopupActionListeners();
     }
@@ -161,8 +146,6 @@ public class FlightDetailsPanel : MonoBehaviour
 
         // Initialize temporary draft values from flight model
         tempStatus = flight.status;
-        tempGate = string.IsNullOrWhiteSpace(flight.gate) || flight.gate == "NA" ? "Gate A4" : flight.gate;
-        tempRunway = string.IsNullOrWhiteSpace(flight.runway) || flight.runway == "NA" ? "Runway 27L" : flight.runway;
 
         // Extract departure hours/minutes
         if (flight.takeoffSlot != null)
@@ -191,13 +174,41 @@ public class FlightDetailsPanel : MonoBehaviour
         // Update Text Elements in Header Section
         if (flightNumberText != null) flightNumberText.text = flight.flightName;
         if (routeText != null) routeText.text = $"{flight.fromAirport}  →  {flight.toAirport}";
-        if (depCountryText != null) depCountryText.text = "INDIA";
-        if (arrCountryText != null) arrCountryText.text = "INDIA";
+
+        string depCountry = "";
+        string arrCountry = "";
+
+        var depAirport = FindAirportByName(flight.fromAirport);
+        if (depAirport != null)
+        {
+            depCountry = depAirport.countryName;
+        }
+        else
+        {
+            depCountry = GetCountryName(flight.fromAirport);
+        }
+
+        var arrAirport = FindAirportByName(flight.toAirport);
+        if (arrAirport != null)
+        {
+            arrCountry = arrAirport.countryName;
+        }
+        else
+        {
+            arrCountry = GetCountryName(flight.toAirport);
+        }
+
+        if (depCountryText != null) depCountryText.text = depCountry;
+        if (arrCountryText != null) arrCountryText.text = arrCountry;
+        if (depAirportCodeText != null) depAirportCodeText.text = flight.fromAirport;
+        if (arrAirportCodeText != null) arrAirportCodeText.text = flight.toAirport;
+        if (routeArrowText != null) routeArrowText.text = "→";
+
         if (aircraftTypeText != null) aircraftTypeText.text = flight.aircraftType;
         if (durationText != null) durationText.text = $"{flight.flightDurationMinutes} mins";
 
         RefreshHeaderExpectedTimes();
-        RefreshStatusChipsDisplay();
+        RefreshFlightStatusDisplay();
         RefreshInfoRowsDisplay();
 
         // Close any residual open popups
@@ -207,6 +218,20 @@ public class FlightDetailsPanel : MonoBehaviour
         {
             panelContainer.SetActive(true);
         }
+    }
+
+    private Airport FindAirportByName(string code)
+    {
+        if (string.IsNullOrEmpty(code)) return null;
+        var airports = FindObjectsByType<Airport>(FindObjectsInactive.Include);
+        foreach (var ap in airports)
+        {
+            if (ap.airportName.Equals(code, System.StringComparison.OrdinalIgnoreCase))
+            {
+                return ap;
+            }
+        }
+        return null;
     }
 
     private void RefreshHeaderExpectedTimes()
@@ -221,26 +246,55 @@ public class FlightDetailsPanel : MonoBehaviour
         }
     }
 
-    private void RefreshStatusChipsDisplay()
+    private string GetCountryName(string airportCode)
     {
-        StyleChip(securityChipButton, tempStatus == "Security");
-        StyleChip(boardingChipButton, tempStatus == "Boarding");
-        StyleChip(taxiChipButton, tempStatus == "Taxi");
-        StyleChip(readyChipButton, tempStatus == "Ready" || tempStatus == "On Time" || tempStatus == "Approved");
+        if (string.IsNullOrEmpty(airportCode)) return "UNKNOWN";
+        switch (airportCode.ToUpper())
+        {
+            case "MUM":
+            case "DEL":
+            case "BLR":
+                return "INDIA";
+            case "LHR": return "UNITED KINGDOM";
+            case "JFK": return "UNITED STATES";
+            case "DXB": return "UNITED ARAB EMIRATES";
+            case "SIN": return "SINGAPORE";
+            case "HND": return "JAPAN";
+            default: return "INDIA";
+        }
     }
 
-    private void StyleChip(Button button, bool isActive)
+    private void Update()
     {
-        if (button == null) return;
-        var img = button.GetComponent<Image>();
-        if (img != null)
+        if (panelContainer != null && panelContainer.activeSelf)
         {
-            img.color = isActive ? chipActiveBgColor : chipInactiveBgColor;
+            RefreshFlightStatusDisplay();
+            RefreshHeaderExpectedTimes();
         }
-        var txt = button.GetComponentInChildren<TMP_Text>();
-        if (txt != null)
+    }
+
+    private void RefreshFlightStatusDisplay()
+    {
+        if (flightStatusText != null && currentFlight != null)
         {
-            txt.color = isActive ? chipActiveTextColor : chipInactiveTextColor;
+            currentFlight.UpdateStatus();
+            flightStatusText.text = currentFlight.status;
+
+            // State styling colors matching the aviation layout
+            Color statusColor = statusPendingColor; // Yellow/Amber default
+            if (currentFlight.state == FlightState.Landed || currentFlight.state == FlightState.ArrivalApproved)
+            {
+                statusColor = statusApprovedColor; // Green
+            }
+            else if (currentFlight.state == FlightState.EnRoute || currentFlight.state == FlightState.Arriving)
+            {
+                statusColor = new Color(0.2f, 0.6f, 1.0f, 1.0f); // Sky Blue
+            }
+            else if (currentFlight.state == FlightState.Diverted)
+            {
+                statusColor = statusRejectedColor; // Red
+            }
+            flightStatusText.color = statusColor;
         }
     }
 
@@ -248,15 +302,13 @@ public class FlightDetailsPanel : MonoBehaviour
     {
         if (scheduledDepValueText != null) scheduledDepValueText.text = $"{tempDepHour:D2}:{tempDepMinute:D2}";
         if (scheduledArrValueText != null) scheduledArrValueText.text = $"{tempArrHour:D2}:{tempArrMinute:D2}";
-        if (boardingGateValueText != null) boardingGateValueText.text = tempGate;
-        if (assignedRunwayValueText != null) assignedRunwayValueText.text = tempRunway;
 
         if (scheduledDepRowButton != null && currentFlight != null)
         {
             var label = scheduledDepRowButton.transform.Find("Label")?.GetComponent<TMP_Text>();
             if (label != null)
             {
-                label.text = $"Scheduled Departure ({currentFlight.fromAirport})";
+                label.text = $"Request DEP ({currentFlight.fromAirport})";
             }
         }
         if (scheduledArrRowButton != null && currentFlight != null)
@@ -264,42 +316,178 @@ public class FlightDetailsPanel : MonoBehaviour
             var label = scheduledArrRowButton.transform.Find("Label")?.GetComponent<TMP_Text>();
             if (label != null)
             {
-                label.text = $"Scheduled Arrival ({currentFlight.toAirport})";
+                label.text = $"Request ARR ({currentFlight.toAirport})";
             }
         }
+
+        // Update badge/box colors and styles dynamically
+        if (currentFlight != null)
+        {
+            UpdateSlotValueBadge(scheduledDepValueBg, scheduledDepValueText, currentFlight.fromAirport, tempDepHour, tempDepMinute, true);
+            UpdateSlotValueBadge(scheduledArrValueBg, scheduledArrValueText, currentFlight.toAirport, tempArrHour, tempArrMinute, false);
+        }
+        else
+        {
+            if (scheduledDepValueBg != null) scheduledDepValueBg.color = statusNoSlotColor;
+            if (scheduledDepValueText != null) scheduledDepValueText.color = Color.white;
+
+            if (scheduledArrValueBg != null) scheduledArrValueBg.color = statusNoSlotColor;
+            if (scheduledArrValueText != null) scheduledArrValueText.color = Color.white;
+        }
+
+        // Dynamic warning message and layout adjustments
+        bool hasDepConflict = false;
+        if (currentFlight != null && FlightManager.Instance != null)
+        {
+            hasDepConflict = (currentFlight.state == FlightState.SlotConflict && tempDepHour == currentFlight.takeoffSlot?.hours && tempDepMinute == currentFlight.takeoffSlot?.minutes);
+        }
+
+        if (hasDepConflict)
+        {
+            // Position ArrRow lower to make room for warning
+            if (scheduledArrRowButton != null)
+            {
+                var rtArr = scheduledArrRowButton.GetComponent<RectTransform>();
+                rtArr.anchoredPosition = new Vector2(rtArr.anchoredPosition.x, -118f);
+            }
+
+            // Show conflict warning text
+            if (conflictWarningText != null)
+            {
+                conflictWarningText.gameObject.SetActive(true);
+                string conflictInfo = FlightManager.Instance.GetConflictingFlightInfo(currentFlight);
+                conflictWarningText.text = $"<color=#EF4444>[CONFLICT] with {conflictInfo}</color>";
+            }
+
+            // Also make sure the value bg is red
+            if (scheduledDepValueBg != null)
+            {
+                scheduledDepValueBg.color = statusRejectedColor;
+            }
+            if (scheduledDepValueText != null)
+            {
+                scheduledDepValueText.color = Color.white;
+            }
+        }
+        else
+        {
+            // Reset ArrRow position
+            if (scheduledArrRowButton != null)
+            {
+                var rtArr = scheduledArrRowButton.GetComponent<RectTransform>();
+                rtArr.anchoredPosition = new Vector2(rtArr.anchoredPosition.x, -98f);
+            }
+
+            // Hide warning
+            if (conflictWarningText != null)
+            {
+                conflictWarningText.gameObject.SetActive(false);
+            }
+        }
+
+        // Adjust DataSection sizeDelta based on conflict presence
+        var dataSection = transform.Find("DataSection");
+        if (dataSection != null)
+        {
+            var rtData = dataSection.GetComponent<RectTransform>();
+            rtData.sizeDelta = new Vector2(rtData.sizeDelta.x, hasDepConflict ? 210f : 190f);
+        }
+
+        // Disable requesting approval if there is a slot conflict
+        if (approveActionBarButton != null)
+        {
+            approveActionBarButton.interactable = !hasDepConflict;
+        }
+    }
+
+    private void UpdateSlotValueBadge(UnityEngine.UI.Image bg, TMP_Text txt, string airportCode, int hour, int minute, bool isDeparture)
+    {
+        if (bg == null || txt == null) return;
+
+        if (currentFlight == null)
+        {
+            bg.color = statusNoSlotColor;
+            txt.color = Color.white;
+            return;
+        }
+
+        Color bgColor = statusNoSlotColor;
+        Color textColor = Color.white;
+
+        // Determine if there is a conflict:
+        bool hasConflict = false;
+        if (isDeparture && currentFlight != null)
+        {
+            if (currentFlight.state == FlightState.SlotConflict && hour == currentFlight.takeoffSlot?.hours && minute == currentFlight.takeoffSlot?.minutes)
+            {
+                hasConflict = true;
+            }
+        }
+
+        if (hasConflict)
+        {
+            bgColor = statusRejectedColor; // Red
+            textColor = Color.white;
+        }
+        else if (isDeparture)
+        {
+            if (currentFlight.takeoffSlot == null)
+            {
+                bgColor = statusNoSlotColor;
+                textColor = Color.white;
+            }
+            else if (currentFlight.takeoffSlot.hours == hour && currentFlight.takeoffSlot.minutes == minute)
+            {
+                bgColor = statusApprovedColor;
+                textColor = Color.white;
+            }
+            else
+            {
+                bgColor = statusPendingColor;
+                textColor = new Color(0.08f, 0.08f, 0.10f); // Dark contrast for yellow
+            }
+        }
+        else
+        {
+            if (currentFlight.status == "Rejected")
+            {
+                bgColor = statusRejectedColor;
+                textColor = Color.white;
+            }
+            else if (currentFlight.landingSlot == null)
+            {
+                bgColor = statusNoSlotColor;
+                textColor = Color.white;
+            }
+            else if (currentFlight.landingSlot.hours == hour && currentFlight.landingSlot.minutes == minute && currentFlight.landingApproved)
+            {
+                bgColor = statusApprovedColor;
+                textColor = Color.white;
+            }
+            else
+            {
+                bgColor = statusPendingColor;
+                textColor = new Color(0.08f, 0.08f, 0.10f); // Dark contrast for yellow
+            }
+        }
+
+        bg.color = bgColor;
+        txt.color = textColor;
     }
 
     private void CloseAllPopups()
     {
         if (timePickerPopup != null) timePickerPopup.SetActive(false);
-        if (gatePickerPopup != null) gatePickerPopup.SetActive(false);
-        if (runwayPickerPopup != null) runwayPickerPopup.SetActive(false);
     }
 
     // ==========================================
     // LISTENERS & EVENT HANDLERS
     // ==========================================
 
-    private void SetupStatusChipListeners()
-    {
-        if (securityChipButton != null) securityChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Security status chip CLICKED."); SetStatusDraft("Security"); });
-        if (boardingChipButton != null) boardingChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Boarding status chip CLICKED."); SetStatusDraft("Boarding"); });
-        if (taxiChipButton != null) taxiChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Taxi status chip CLICKED."); SetStatusDraft("Taxi"); });
-        if (readyChipButton != null) readyChipButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Ready status chip CLICKED."); SetStatusDraft("Ready"); });
-    }
-
-    private void SetStatusDraft(string newStatus)
-    {
-        tempStatus = newStatus;
-        RefreshStatusChipsDisplay();
-    }
-
     private void SetupInfoRowListeners()
     {
-        if (scheduledDepRowButton != null) scheduledDepRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Scheduled Departure row CLICKED."); OpenTimePicker(true); });
-        if (scheduledArrRowButton != null) scheduledArrRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Scheduled Arrival row CLICKED."); OpenTimePicker(false); });
-        if (boardingGateRowButton != null) boardingGateRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Boarding Gate row CLICKED."); OpenGatePicker(); });
-        if (assignedRunwayRowButton != null) assignedRunwayRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Assigned Runway row CLICKED."); OpenRunwayPicker(); });
+        if (scheduledDepRowButton != null) scheduledDepRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Request DEP row CLICKED."); OpenTimePicker(true); });
+        if (scheduledArrRowButton != null) scheduledArrRowButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Request ARR row CLICKED."); OpenTimePicker(false); });
 
         if (discardActionBarButton != null) discardActionBarButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] DISCARD action button CLICKED."); ClosePanel(); });
         if (approveActionBarButton != null) approveActionBarButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] REQUEST action button CLICKED."); ApproveAllChanges(); });
@@ -310,14 +498,6 @@ public class FlightDetailsPanel : MonoBehaviour
         // Time Picker Buttons
         if (timePickerCancelButton != null) timePickerCancelButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Time Picker CANCEL CLICKED."); timePickerPopup.SetActive(false); });
         if (timePickerConfirmButton != null) timePickerConfirmButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Time Picker CONFIRM CLICKED."); ConfirmTimePickerSelection(); });
-
-        // Gate Picker Buttons
-        if (gatePickerCancelButton != null) gatePickerCancelButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Gate Picker CANCEL CLICKED."); gatePickerPopup.SetActive(false); });
-        if (gatePickerConfirmButton != null) gatePickerConfirmButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Gate Picker CONFIRM CLICKED."); ConfirmGatePickerSelection(); });
-
-        // Runway Picker Buttons
-        if (runwayPickerCancelButton != null) runwayPickerCancelButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Runway Picker CANCEL CLICKED."); runwayPickerPopup.SetActive(false); });
-        if (runwayPickerConfirmButton != null) runwayPickerConfirmButton.onClick.AddListener(() => { Debug.Log("[FlightDetailsPanel] Runway Picker CONFIRM CLICKED."); ConfirmRunwayPickerSelection(); });
     }
 
     // ==========================================
@@ -566,144 +746,6 @@ public class FlightDetailsPanel : MonoBehaviour
     }
 
     // ==========================================
-    // GATE PICKER POPUP FLOW
-    // ==========================================
-
-    private void OpenGatePicker()
-    {
-        CloseAllPopups();
-        modalSelectedGate = tempGate;
-        RedrawGatePicker();
-        if (gatePickerPopup != null) gatePickerPopup.SetActive(true);
-    }
-
-    private void RedrawGatePicker()
-    {
-        if (gateCardsContainer == null) return;
-
-        foreach (Transform child in gateCardsContainer)
-        {
-            if (gateCardPrefab != null && child.gameObject == gateCardPrefab) continue;
-            Destroy(child.gameObject);
-        }
-
-        string[] gates = { "Gate A1", "Gate A2", "Gate A3", "Gate A4", "Gate A5", "Gate B1", "Gate B2", "Gate B3" };
-        foreach (string gate in gates)
-        {
-            string gateName = gate;
-            GameObject cardGo;
-            if (gateCardPrefab != null)
-            {
-                cardGo = Instantiate(gateCardPrefab, gateCardsContainer);
-                cardGo.SetActive(true);
-            }
-            else
-            {
-                cardGo = new GameObject(gateName);
-                cardGo.transform.SetParent(gateCardsContainer, false);
-                cardGo.AddComponent<Image>().color = chipInactiveBgColor;
-                var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
-                txt.transform.SetParent(cardGo.transform, false);
-                txt.fontSize = 14;
-                txt.alignment = TextAlignmentOptions.Center;
-                cardGo.AddComponent<Button>();
-            }
-
-            var btn = cardGo.GetComponent<Button>();
-            var textComp = cardGo.GetComponentInChildren<TMP_Text>();
-            if (textComp != null)
-            {
-                textComp.text = gateName;
-            }
-
-            bool isSelected = (gateName == modalSelectedGate);
-            StylePickerElement(cardGo, isSelected);
-
-            btn.onClick.RemoveAllListeners();
-            btn.onClick.AddListener(() => {
-                modalSelectedGate = gateName;
-                RedrawGatePicker();
-            });
-        }
-    }
-
-    private void ConfirmGatePickerSelection()
-    {
-        tempGate = modalSelectedGate;
-        RefreshInfoRowsDisplay();
-        gatePickerPopup.SetActive(false);
-    }
-
-    // ==========================================
-    // RUNWAY PICKER POPUP FLOW
-    // ==========================================
-
-    private void OpenRunwayPicker()
-    {
-        CloseAllPopups();
-        modalSelectedRunway = tempRunway;
-        RedrawRunwayPicker();
-        if (runwayPickerPopup != null) runwayPickerPopup.SetActive(true);
-    }
-
-    private void RedrawRunwayPicker()
-    {
-        if (runwayCardsContainer == null) return;
-
-        foreach (Transform child in runwayCardsContainer)
-        {
-            if (runwayCardPrefab != null && child.gameObject == runwayCardPrefab) continue;
-            Destroy(child.gameObject);
-        }
-
-        string[] runways = { "Runway 09L", "Runway 09R", "Runway 27L", "Runway 27R" };
-        foreach (string runway in runways)
-        {
-            string runwayName = runway;
-            GameObject cardGo;
-            if (runwayCardPrefab != null)
-            {
-                cardGo = Instantiate(runwayCardPrefab, runwayCardsContainer);
-                cardGo.SetActive(true);
-            }
-            else
-            {
-                cardGo = new GameObject(runwayName);
-                cardGo.transform.SetParent(runwayCardsContainer, false);
-                cardGo.AddComponent<Image>().color = chipInactiveBgColor;
-                var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
-                txt.transform.SetParent(cardGo.transform, false);
-                txt.fontSize = 14;
-                txt.alignment = TextAlignmentOptions.Center;
-                cardGo.AddComponent<Button>();
-            }
-
-            var btn = cardGo.GetComponent<Button>();
-            var textComp = cardGo.GetComponentInChildren<TMP_Text>();
-            if (textComp != null)
-            {
-                textComp.text = runwayName;
-            }
-
-            bool isSelected = (runwayName == modalSelectedRunway);
-            StylePickerElement(cardGo, isSelected);
-
-            btn.onClick.RemoveAllListeners();
-            btn.onClick.AddListener(() => {
-                modalSelectedRunway = runwayName;
-                RedrawRunwayPicker();
-            });
-        }
-    }
-
-    private void ConfirmRunwayPickerSelection()
-    {
-        tempRunway = modalSelectedRunway;
-        RefreshInfoRowsDisplay();
-        runwayPickerPopup.SetActive(false);
-    }
-
-    // ==========================================
     // FINAL SAVE AND CANCEL ACTIONS
     // ==========================================
 
@@ -712,9 +754,7 @@ public class FlightDetailsPanel : MonoBehaviour
         if (currentFlight == null) return;
 
         // Update main data model
-        currentFlight.status = "Pending Approval"; // Waiting for destination approval
-        currentFlight.gate = tempGate;
-        currentFlight.runway = tempRunway;
+        currentFlight.state = FlightState.FlightCreated;
         currentFlight.landingApproved = false; // Must be approved by destination airport
 
         // Update Time Management with TimeSlotManager bookings
