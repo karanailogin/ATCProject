@@ -6572,6 +6572,8 @@ MonoBehaviour:
   countryName: INDIA
   flightListContent: {fileID: 91467117}
   flightInfoPrefab: {fileID: 5990483798962105210, guid: af0a65d9e124d8144b20d001476c61fa, type: 3}
+  airportPanelArrivalPrefab: {fileID: 5990483798962105210, guid: 95f0777392966174e9fd3e34b71bd142, type: 3}
+  airportPanelDeparturePrefab: {fileID: 5990483798962105210, guid: 026c9f7c82eb02e40b488294e00f7c7d, type: 3}
   PendingFlightRequests: []
   AirportSchedule: []
 --- !u!212 &503072979
@@ -10487,6 +10489,8 @@ MonoBehaviour:
   countryName: INDIA
   flightListContent: {fileID: 91467117}
   flightInfoPrefab: {fileID: 5990483798962105210, guid: af0a65d9e124d8144b20d001476c61fa, type: 3}
+  airportPanelArrivalPrefab: {fileID: 5990483798962105210, guid: 95f0777392966174e9fd3e34b71bd142, type: 3}
+  airportPanelDeparturePrefab: {fileID: 5990483798962105210, guid: 026c9f7c82eb02e40b488294e00f7c7d, type: 3}
   PendingFlightRequests: []
   AirportSchedule: []
 --- !u!212 &767093985
@@ -12440,6 +12444,8 @@ MonoBehaviour:
   countryName: INDIA
   flightListContent: {fileID: 91467117}
   flightInfoPrefab: {fileID: 5990483798962105210, guid: af0a65d9e124d8144b20d001476c61fa, type: 3}
+  airportPanelArrivalPrefab: {fileID: 5990483798962105210, guid: 95f0777392966174e9fd3e34b71bd142, type: 3}
+  airportPanelDeparturePrefab: {fileID: 5990483798962105210, guid: 026c9f7c82eb02e40b488294e00f7c7d, type: 3}
   PendingFlightRequests: []
   AirportSchedule: []
 --- !u!212 &854015980
