@@ -13,6 +13,10 @@ public class Airport : MonoBehaviour
     public Transform flightListContent;
     public GameObject flightInfoPrefab;
 
+    [Header("Airport Custom Panel Prefabs")]
+    public GameObject airportPanelArrivalPrefab;
+    public GameObject airportPanelDeparturePrefab;
+
     [Header("Airport Data Collections")]
     public List<Flight> PendingFlightRequests = new List<Flight>();
     public List<AirportScheduleEvent> AirportSchedule = new List<AirportScheduleEvent>();
@@ -96,104 +100,105 @@ public class Airport : MonoBehaviour
             Destroy(child.gameObject);
         }
 
-        // 1. Populate Pending Flight Requests for this arrival airport
-        PendingFlightRequests.Clear();
+        // 1. Resolve Filter Index from Dropdown: 0 = All Flights, 1 = Departure, 2 = Arrival
+        int filterIndex = 0;
+        var dropdownGo = GameObject.Find("MainCanvas/AirportInfoPanel/AirportNamePanel/FlightFilterDropdown");
+        if (dropdownGo != null)
+        {
+            var dropdown = dropdownGo.GetComponent<TMP_Dropdown>();
+            if (dropdown != null)
+            {
+                filterIndex = dropdown.value;
+            }
+        }
+
+        // 2. Gather and sort timeline events
+        List<TimelineEvent> events = new List<TimelineEvent>();
+
         foreach (var f in FlightManager.Instance.AllFlights)
         {
-            if (f != null && f.toAirport == airportName && !f.landingApproved && f.state != FlightState.Landed && f.state != FlightState.Diverted)
+            if (f != null)
             {
-                PendingFlightRequests.Add(f);
-            }
-        }
-
-        // 2. Populate Airport Schedule (Approved flights only)
-        AirportSchedule.Clear();
-        foreach (var f in FlightManager.Instance.AllFlights)
-        {
-            if (f != null && f.landingApproved)
-            {
-                if (f.fromAirport == airportName)
+                if (f.fromAirport == airportName && (filterIndex == 0 || filterIndex == 1))
                 {
-                    AirportSchedule.Add(new AirportScheduleEvent
+                    events.Add(new TimelineEvent
                     {
-                        FlightID = f.flightID,
-                        FlightNumber = f.flightName,
-                        EventType = AirportEventType.Departure,
-                        AirportCode = f.fromAirport,
-                        OtherAirportCode = f.toAirport,
-                        EventTime = f.departureTime
+                        flight = f,
+                        isArrival = false,
+                        sortMinutes = GetFlightTakeoffMinutes(f),
+                        displayTime = f.departureTime
                     });
                 }
-                if (f.toAirport == airportName)
+                if (f.toAirport == airportName && (filterIndex == 0 || filterIndex == 2))
                 {
-                    AirportSchedule.Add(new AirportScheduleEvent
+                    int arrMins = GetFlightLandingMinutes(f);
+                    int depMins = GetFlightTakeoffMinutes(f);
+                    bool isNextDay = arrMins < depMins;
+
+                    events.Add(new TimelineEvent
                     {
-                        FlightID = f.flightID,
-                        FlightNumber = f.flightName,
-                        EventType = AirportEventType.Arrival,
-                        AirportCode = f.toAirport,
-                        OtherAirportCode = f.fromAirport,
-                        EventTime = f.arrivalTime
+                        flight = f,
+                        isArrival = true,
+                        sortMinutes = isNextDay ? (arrMins + 1440) : arrMins,
+                        displayTime = isNextDay ? $"+{f.arrivalTime}" : f.arrivalTime
                     });
                 }
             }
         }
 
-        // Sort Schedule chronologically by event time ascending
-        AirportSchedule.Sort((e1, e2) => ParseTimeToMinutes(e1.EventTime).CompareTo(ParseTimeToMinutes(e2.EventTime)));
+        // Sort events chronologically by sortMinutes ascending
+        events.Sort((e1, e2) => e1.sortMinutes.CompareTo(e2.sortMinutes));
 
-        // Organize schedule to display upcoming events first
-        float currentMinutes = 360f;
-        if (WorldClockManager.Instance != null)
+        // 3. Render sorted timeline events
+        if (events.Count == 0)
         {
-            currentMinutes = WorldClockManager.Instance.currentVirtualTime;
-        }
-        else if (FlightManager.Instance != null)
-        {
-            currentMinutes = FlightManager.Instance.currentVirtualTime;
-        }
-
-        List<AirportScheduleEvent> orderedSchedule = new List<AirportScheduleEvent>();
-        List<AirportScheduleEvent> upcomingEvents = new List<AirportScheduleEvent>();
-        List<AirportScheduleEvent> pastEvents = new List<AirportScheduleEvent>();
-
-        foreach (var ev in AirportSchedule)
-        {
-            if (ParseTimeToMinutes(ev.EventTime) >= currentMinutes)
+            if (filterIndex == 0 || filterIndex == 1)
             {
-                upcomingEvents.Add(ev);
+                GameObject placeholderGo = Instantiate(flightInfoPrefab, flightListContent);
+                placeholderGo.name = "Placeholder_NoDepartures";
+                var placeholderUI = placeholderGo.GetComponent<FlightInfoUI>();
+                if (placeholderUI != null)
+                {
+                    placeholderUI.SetHeaderData("No departing flights");
+                }
             }
-            else
+            if (filterIndex == 0 || filterIndex == 2)
             {
-                pastEvents.Add(ev);
+                GameObject placeholderGo = Instantiate(flightInfoPrefab, flightListContent);
+                placeholderGo.name = "Placeholder_NoArrivals";
+                var placeholderUI = placeholderGo.GetComponent<FlightInfoUI>();
+                if (placeholderUI != null)
+                {
+                    placeholderUI.SetHeaderData("No arriving flights");
+                }
             }
-        }
-        orderedSchedule.AddRange(upcomingEvents);
-        orderedSchedule.AddRange(pastEvents);
-
-        // ================= BUILD UI USING PREFAB =================
-
-        // Section A: Pending Flight Requests (Only visible when requests exist)
-        if (PendingFlightRequests.Count > 0)
-        {
-            CreateHeader("Pending Flight Requests");
-            foreach (var req in PendingFlightRequests)
-            {
-                CreateRequestRow(req);
-            }
-        }
-
-        // Section B: Unified Chronological Schedule Section
-        CreateHeader("Airport Schedule");
-        if (orderedSchedule.Count == 0)
-        {
-            CreateNoSchedulePlaceholder();
         }
         else
         {
-            foreach (var ev in orderedSchedule)
+            foreach (var ev in events)
             {
-                CreateScheduleEventRow(ev);
+                if (ev.isArrival)
+                {
+                    GameObject usePrefab = airportPanelArrivalPrefab != null ? airportPanelArrivalPrefab : flightInfoPrefab;
+                    GameObject cardGo = Instantiate(usePrefab, flightListContent);
+                    cardGo.name = $"ArrivingCard_{ev.flight.flightName}";
+                    var cardUI = cardGo.GetComponent<FlightInfoUI>();
+                    if (cardUI != null)
+                    {
+                        cardUI.SetArrivingFlightData(ev.flight, ev.displayTime);
+                    }
+                }
+                else
+                {
+                    GameObject usePrefab = airportPanelDeparturePrefab != null ? airportPanelDeparturePrefab : flightInfoPrefab;
+                    GameObject cardGo = Instantiate(usePrefab, flightListContent);
+                    cardGo.name = $"DepartingCard_{ev.flight.flightName}";
+                    var cardUI = cardGo.GetComponent<FlightInfoUI>();
+                    if (cardUI != null)
+                    {
+                        cardUI.SetDepartingFlightData(ev.flight, ev.displayTime);
+                    }
+                }
             }
         }
 
@@ -333,9 +338,15 @@ public class Airport : MonoBehaviour
                 if (f.landingSlot != null) sb.Append(f.landingSlot.GetTimeString()).Append("_");
             }
         }
-        if (WorldClockManager.Instance != null)
+        // Append dropdown value to states hash for automatic, responsive rebuilding
+        var dropdownGo = GameObject.Find("MainCanvas/AirportInfoPanel/AirportNamePanel/FlightFilterDropdown");
+        if (dropdownGo != null)
         {
-            sb.Append(WorldClockManager.Instance.currentVirtualTime.ToString("F0"));
+            var dropdown = dropdownGo.GetComponent<TMP_Dropdown>();
+            if (dropdown != null)
+            {
+                sb.Append("_drop_").Append(dropdown.value);
+            }
         }
         return sb.ToString();
     }
@@ -353,5 +364,25 @@ public class Airport : MonoBehaviour
 
             current = current.parent;
         }
+    }
+
+    private int GetFlightTakeoffMinutes(Flight f)
+    {
+        if (f.takeoffSlot != null) return f.takeoffSlot.GetTotalMinutes();
+        return ParseTimeToMinutes(f.departureTime);
+    }
+
+    private int GetFlightLandingMinutes(Flight f)
+    {
+        if (f.landingSlot != null) return f.landingSlot.GetTotalMinutes();
+        return ParseTimeToMinutes(f.arrivalTime);
+    }
+
+    private class TimelineEvent
+    {
+        public Flight flight;
+        public bool isArrival;
+        public int sortMinutes;
+        public string displayTime;
     }
 }

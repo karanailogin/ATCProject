@@ -17,6 +17,15 @@ public class FlightInfoUI : MonoBehaviour
     public UnityEngine.UI.Button rejectButton;
     public UnityEngine.UI.Image stateColorBar;
 
+    [Header("Flight Icon Customization")]
+    public FlightIconConfig iconConfig;
+    private UnityEngine.UI.Image iconImage;
+    private UnityEngine.UI.RawImage iconRawImage;
+
+    [Header("Suggested Arrival/Departure Fields (New Prefabs)")]
+    public TextMeshProUGUI suggestedArrText;
+    public TextMeshProUGUI suggestedDepText;
+
     public static Flight selectedFlight;
 
     private Flight currentFlight;
@@ -36,6 +45,34 @@ public class FlightInfoUI : MonoBehaviour
         if (stateColorBar == null) stateColorBar = transform.Find("StateColorBar")?.GetComponent<UnityEngine.UI.Image>();
         if (acceptButton == null) acceptButton = transform.Find("AcceptButton")?.GetComponent<UnityEngine.UI.Button>();
         if (rejectButton == null) rejectButton = transform.Find("RejectButton")?.GetComponent<UnityEngine.UI.Button>();
+
+        // Cache icon components on the child named "Icon"
+        var iconTrans = transform.Find("Icon");
+        if (iconTrans != null)
+        {
+            iconImage = iconTrans.GetComponent<UnityEngine.UI.Image>();
+            iconRawImage = iconTrans.GetComponent<UnityEngine.UI.RawImage>();
+        }
+
+        // Cache suggested arrival/departure fields if present
+        if (suggestedArrText == null) suggestedArrText = transform.Find("SuggestedARR")?.GetComponent<TextMeshProUGUI>();
+        if (suggestedDepText == null) suggestedDepText = transform.Find("SuggestedDEP")?.GetComponent<TextMeshProUGUI>();
+
+        // Dynamically load the FlightIconConfig asset if not manually assigned in inspector
+        if (iconConfig == null)
+        {
+            iconConfig = Resources.Load<FlightIconConfig>("FlightIconConfig");
+        }
+
+        // Disable badge bg image by default to avoid bleeding
+        if (statusText != null)
+        {
+            var badgeImg = statusText.GetComponent<UnityEngine.UI.Image>();
+            if (badgeImg != null)
+            {
+                badgeImg.enabled = false;
+            }
+        }
     }
 
     public void UpdateSelectionVisuals()
@@ -60,6 +97,9 @@ public class FlightInfoUI : MonoBehaviour
         if (stateColorBar != null) stateColorBar.gameObject.SetActive(true);
         if (acceptButton != null) acceptButton.gameObject.SetActive(false);
         if (rejectButton != null) rejectButton.gameObject.SetActive(false);
+
+        // Update the flight icon based on state
+        UpdateIconForState(flight.state);
 
         // Click interaction
         if (clickButton != null)
@@ -94,6 +134,9 @@ public class FlightInfoUI : MonoBehaviour
         if (acceptButton != null) acceptButton.gameObject.SetActive(false);
         if (rejectButton != null) rejectButton.gameObject.SetActive(false);
 
+        // Hide flight icon for header rows
+        SetIconActive(false);
+
         if (clickButton != null)
         {
             clickButton.interactable = false;
@@ -105,6 +148,9 @@ public class FlightInfoUI : MonoBehaviour
     {
         EnsureReferences();
         currentFlight = flight;
+
+        // Set the flight icon based on state (Ground)
+        UpdateIconForState(flight.state);
 
         if (flightNameText != null) { flightNameText.gameObject.SetActive(true); flightNameText.text = $"<color=#EAB308><b>[{flight.flightName}]</b></color>"; }
         if (routeText != null) { routeText.gameObject.SetActive(true); routeText.text = $"<b>{flight.fromAirport} → {flight.toAirport}</b>"; }
@@ -252,6 +298,17 @@ public class FlightInfoUI : MonoBehaviour
         currentFlight = null;
 
         bool isArrival = ev.EventType == AirportEventType.Arrival;
+
+        // Set specific TakeOff or Landing icons for schedule entries
+        if (isArrival)
+        {
+            UpdateIconWithSprite(iconConfig != null ? iconConfig.landingIcon : null);
+        }
+        else
+        {
+            UpdateIconWithSprite(iconConfig != null ? iconConfig.takeoffIcon : null);
+        }
+
         string typeString = isArrival ? "<color=#3B82F6><b>ARR</b></color>" : "<color=#22C55E><b>DEP</b></color>";
         string relationText = isArrival ? $"from <b>{ev.OtherAirportCode}</b>" : $"to <b>{ev.OtherAirportCode}</b>";
 
@@ -334,6 +391,227 @@ public class FlightInfoUI : MonoBehaviour
                       "ArrivalTime: " + (string.IsNullOrWhiteSpace(currentFlight.arrivalTime) ? "NA" : currentFlight.arrivalTime) + "\n" +
                       "Gate: " + (string.IsNullOrWhiteSpace(currentFlight.gate) ? "NA" : currentFlight.gate) + "\n" +
                       "Runway: " + (string.IsNullOrWhiteSpace(currentFlight.runway) ? "NA" : currentFlight.runway));
+        }
+    }
+
+    private void UpdateIconForState(FlightState state)
+    {
+        if (iconConfig != null)
+        {
+            Sprite sprite = iconConfig.GetFlightIcon(state);
+            UpdateIconWithSprite(sprite);
+        }
+    }
+
+    private void UpdateIconWithSprite(Sprite sprite)
+    {
+        if (sprite != null)
+        {
+            SetIconActive(true);
+            if (iconImage != null)
+            {
+                iconImage.sprite = sprite;
+            }
+            else if (iconRawImage != null)
+            {
+                iconRawImage.texture = sprite.texture;
+            }
+        }
+        else
+        {
+            SetIconActive(false);
+        }
+    }
+
+    private void SetIconActive(bool active)
+    {
+        if (iconImage != null) iconImage.gameObject.SetActive(active);
+        if (iconRawImage != null) iconRawImage.gameObject.SetActive(active);
+    }
+
+    // Mode 5: Compact Departing Flight Card
+    public void SetDepartingFlightData(Flight flight, string overrideDepartureTime = null)
+    {
+        EnsureReferences();
+        currentFlight = flight;
+
+        string depTime = overrideDepartureTime ?? flight.departureTime;
+
+        if (flightNameText != null) 
+        { 
+            flightNameText.gameObject.SetActive(true); 
+            flightNameText.text = $"<b>{flight.flightName}</b>"; 
+        }
+
+        if (routeText != null) 
+        { 
+            routeText.gameObject.SetActive(true); 
+            if (suggestedDepText != null)
+            {
+                routeText.text = $"To {flight.toAirport}";
+            }
+            else
+            {
+                routeText.text = $"To: <b>{flight.toAirport}</b>      DEP: <b>{depTime}</b>"; 
+            }
+        }
+
+        if (suggestedDepText != null)
+        {
+            suggestedDepText.gameObject.SetActive(true);
+            suggestedDepText.text = depTime;
+        }
+
+        // Configure Status as a small rounded badge
+        string statusStr = GetOutboundStatusText(flight);
+        Color badgeColor = GetOutboundStatusColor(flight);
+        SetupStatusBadge(statusStr, badgeColor);
+
+        // Configure the flight icon
+        UpdateIconForState(flight.state);
+
+        // Click interaction to open details
+        if (clickButton != null)
+        {
+            clickButton.interactable = true;
+            clickButton.onClick.RemoveAllListeners();
+            clickButton.onClick.AddListener(OnFlightClicked);
+        }
+
+        // Use the colored state indicator line
+        if (stateColorBar != null)
+        {
+            stateColorBar.gameObject.SetActive(true);
+            stateColorBar.color = badgeColor;
+        }
+
+        UpdateSelectionVisuals();
+    }
+
+    // Mode 6: Compact Arriving Flight Card
+    public void SetArrivingFlightData(Flight flight, string overrideArrivalTime = null)
+    {
+        EnsureReferences();
+        currentFlight = flight;
+
+        string arrTime = overrideArrivalTime ?? flight.arrivalTime;
+
+        if (flightNameText != null) 
+        { 
+            flightNameText.gameObject.SetActive(true); 
+            flightNameText.text = $"<b>{flight.flightName}</b>"; 
+        }
+
+        if (routeText != null) 
+        { 
+            routeText.gameObject.SetActive(true); 
+            if (suggestedArrText != null)
+            {
+                routeText.text = $"From {flight.fromAirport}";
+            }
+            else
+            {
+                routeText.text = $"From: <b>{flight.fromAirport}</b>      ARR: <b>{arrTime}</b>"; 
+            }
+        }
+
+        if (suggestedArrText != null)
+        {
+            suggestedArrText.gameObject.SetActive(true);
+            suggestedArrText.text = arrTime;
+        }
+
+        // Configure Status as a small rounded badge
+        string statusStr = GetInboundStatusText(flight);
+        Color badgeColor = GetInboundStatusColor(flight);
+        SetupStatusBadge(statusStr, badgeColor);
+
+        // Configure the flight icon
+        UpdateIconForState(flight.state);
+
+        // Click interaction to open details
+        if (clickButton != null)
+        {
+            clickButton.interactable = true;
+            clickButton.onClick.RemoveAllListeners();
+            clickButton.onClick.AddListener(OnFlightClicked);
+        }
+
+        // Use the colored state indicator line
+        if (stateColorBar != null)
+        {
+            stateColorBar.gameObject.SetActive(true);
+            stateColorBar.color = badgeColor;
+        }
+
+        UpdateSelectionVisuals();
+    }
+
+    private string GetOutboundStatusText(Flight flight)
+    {
+        if (flight.state == FlightState.SlotConflict) return "Conflict";
+        if (flight.landingApproved) return "Approved";
+        return "Pending";
+    }
+
+    private Color GetOutboundStatusColor(Flight flight)
+    {
+        if (flight.state == FlightState.SlotConflict) return new Color(0.94f, 0.27f, 0.27f, 1.0f); // Red
+        if (flight.landingApproved) return new Color(0.13f, 0.77f, 0.36f, 1.0f); // Green
+        return new Color(0.95f, 0.61f, 0.07f, 1.0f); // Orange/Yellow
+    }
+
+    private string GetInboundStatusText(Flight flight)
+    {
+        if (flight.state == FlightState.SlotConflict) return "Conflict";
+        if (flight.landingApproved) return "Approved";
+        return "Requested";
+    }
+
+    private Color GetInboundStatusColor(Flight flight)
+    {
+        if (flight.state == FlightState.SlotConflict) return new Color(0.94f, 0.27f, 0.27f, 1.0f); // Red
+        if (flight.landingApproved) return new Color(0.13f, 0.77f, 0.36f, 1.0f); // Green
+        return new Color(0.95f, 0.61f, 0.07f, 1.0f); // Orange/Yellow
+    }
+
+    private void SetupStatusBadge(string text, Color badgeColor)
+    {
+        if (statusText == null) return;
+
+        statusText.gameObject.SetActive(true);
+        statusText.text = $"<b>{text.ToUpper()}</b>";
+        statusText.color = badgeColor; // Set text color directly (e.g. Green, Yellow, Red) to support custom prefabs
+        statusText.alignment = TextAlignmentOptions.Left;
+
+        // If there's an existing Image on statusText's GameObject (e.g. from design), configure it.
+        // We will NOT dynamically add an Image component to avoid "Can't add Image because TextMeshProUGUI is already added" error.
+        var badgeImg = statusText.GetComponent<UnityEngine.UI.Image>();
+        if (badgeImg != null)
+        {
+            badgeImg.enabled = true;
+            badgeImg.color = badgeColor;
+            statusText.color = Color.white; // Make text white if it is rendered on top of a colored image background
+
+            // Load the RoundedRect sprite if not assigned
+            if (badgeImg.sprite == null)
+            {
+                Sprite roundedSprite = null;
+                var sceneImgs = Object.FindObjectsByType<UnityEngine.UI.Image>(FindObjectsInactive.Include);
+                foreach (var simg in sceneImgs)
+                {
+                    if (simg.sprite != null && simg.sprite.name == "RoundedRect")
+                    {
+                        roundedSprite = simg.sprite;
+                        break;
+                    }
+                }
+                if (roundedSprite != null)
+                {
+                    badgeImg.sprite = roundedSprite;
+                    badgeImg.type = UnityEngine.UI.Image.Type.Sliced;
+                }
+            }
         }
     }
 }
