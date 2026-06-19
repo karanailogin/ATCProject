@@ -16,9 +16,9 @@ public class FlightSpawner : MonoBehaviour
 
         FlightManager.Instance.ClearAllFlights();
 
-        if (mumbaiAirport == null || delhiAirport == null || bangaloreAirport == null)
+        if (mumbaiAirport == null || delhiAirport == null)
         {
-            Debug.LogError("FlightSpawner requires all 3 airport references assigned in the Inspector.");
+            Debug.LogError("FlightSpawner requires Mumbai and Delhi airport references assigned in the Inspector.");
             return;
         }
 
@@ -41,20 +41,15 @@ public class FlightSpawner : MonoBehaviour
             Debug.Log("[FlightSpawner] WorldClockManager.Instance not found. Defaulting first flight to 06:30.");
         }
 
-        // Add dynamically timed demo flights starting 30 minutes from the game world clock
+        // For now, spawn only one test flight 30 minutes after the game world clock start time.
         AddFlightWithTime(0, "AI101", "MUM", "DEL", "On Time", 120, "Boeing 737", "NA", "NA", "NA", "NA", mumbaiAirport, baseHour, baseMinute);
-        
-        // Schedule subsequent flights with increments to keep scheduling interesting and realistic
-        AddFlightWithTime(1, "UK202", "DEL", "BLR", "On Time", 95, "Airbus A320", "NA", "NA", "NA", "NA", delhiAirport, baseHour + 1, (baseMinute + 15) % 60);
-        AddFlightWithTime(2, "SG303", "BLR", "MUM", "On Time", 150, "Boeing 787", "NA", "NA", "NA", "NA", bangaloreAirport, baseHour + 2, (baseMinute + 30) % 60);
-        AddFlightWithTime(3, "AI102", "MUM", "DEL", "On Time", 120, "Boeing 737", "NA", "NA", "NA", "NA", mumbaiAirport, baseHour + 3, (baseMinute + 45) % 60);
 
         if (FlightManager.Instance != null)
         {
             FlightManager.Instance.RecalculateSlotConflicts();
         }
 
-        Debug.Log("Demo flights spawned for all airports.");
+        Debug.Log($"Spawned single test flight AI101 MUM -> DEL with expected DEP {baseHour:D2}:{baseMinute:D2}.");
     }
 
     private static void AddFlightWithTime(int index, string flightName, string fromAirport, string toAirport, string status,

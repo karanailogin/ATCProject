@@ -6,6 +6,7 @@ using System.Collections.Generic;
 public class AirportSchedulePanel : MonoBehaviour
 {
     public static AirportSchedulePanel Instance;
+    private static Sprite scheduleRoundedSprite;
 
     [Header("Panel Container")]
     public GameObject panelContainer;
@@ -40,6 +41,7 @@ public class AirportSchedulePanel : MonoBehaviour
     private List<Button> hourButtons = new List<Button>();
     private int hourStartOffset = 10; // Viewport of hours: displays hours from hourStartOffset to hourStartOffset + 4
     private TextMeshProUGUI centerHeaderText;
+    private TextMeshProUGUI pendingHeaderText;
 
     // Slot Details Popup Modal
     private GameObject slotDetailsPopup;
@@ -106,8 +108,8 @@ public class AirportSchedulePanel : MonoBehaviour
             });
         }
 
-        // Initialize redesigned layout and popup
-        InitializeLayoutRedesign();
+        // Initialize the airport schedule memory layout and popup
+        InitializeScheduleMemoryLayout();
         InitializeDetailsPopup();
     }
 
@@ -147,8 +149,17 @@ public class AirportSchedulePanel : MonoBehaviour
 
         Debug.Log($"[AirportSchedulePanel] DisplaySchedule() called for airport: {airport.airportName}");
         currentAirport = airport;
-        selectedHour = 12; // Default to 12:00 hour view
-        hourStartOffset = 10; // Center around 12:00 (shows 10:00 to 14:00)
+        if (WorldClockManager.Instance != null)
+        {
+            System.DateTime now = WorldClockManager.Instance.CurrentTime;
+            selectedHour = now.Hour;
+            hourStartOffset = now.Minute <= 15 ? now.Hour - 1 : now.Hour;
+        }
+        else
+        {
+            selectedHour = 12;
+            hourStartOffset = 12;
+        }
 
         if (selectedAirportHeader != null)
         {
@@ -157,7 +168,7 @@ public class AirportSchedulePanel : MonoBehaviour
 
         if (centerHeaderText != null)
         {
-            centerHeaderText.text = $"{airport.airportName} AIRPORT SCHEDULE";
+            centerHeaderText.text = $"SLOTS FOR {selectedHour:D2}:00";
         }
 
         // Close details popup on new airport display
@@ -168,8 +179,6 @@ public class AirportSchedulePanel : MonoBehaviour
         selectedSlotHour = -1;
         selectedSlotMinute = -1;
         selectedSlotFlight = null;
-
-        RefreshAll();
 
         if (airportInfoPanel != null)
         {
@@ -190,6 +199,8 @@ public class AirportSchedulePanel : MonoBehaviour
             isOpeningProgrammatically = true;
             panelContainer.SetActive(true);
             isOpeningProgrammatically = false;
+            RefreshAll();
+            Canvas.ForceUpdateCanvases();
         }
         else
         {
@@ -200,6 +211,7 @@ public class AirportSchedulePanel : MonoBehaviour
     private void SafeDestroy(GameObject go)
     {
         if (go == null) return;
+        go.SetActive(false);
         go.transform.SetParent(null);
         if (Application.isPlaying)
         {
@@ -209,6 +221,191 @@ public class AirportSchedulePanel : MonoBehaviour
         {
             DestroyImmediate(go);
         }
+    }
+
+    private void InitializeScheduleMemoryLayout()
+    {
+        Transform splitContainer = transform.Find("SplitContainer");
+        if (splitContainer == null) return;
+
+        List<GameObject> oldChildren = new List<GameObject>();
+        foreach (Transform child in splitContainer)
+        {
+            oldChildren.Add(child.gameObject);
+        }
+        foreach (GameObject child in oldChildren)
+        {
+            SafeDestroy(child);
+        }
+
+        GameObject hourPanel = CreateScheduleSection("HourNavigatorPanel", splitContainer, new Vector2(0f, 0f), new Vector2(0.18f, 1f));
+        GameObject slotPanel = CreateScheduleSection("SlotTimelinePanel", splitContainer, new Vector2(0.18f, 0f), new Vector2(0.75f, 1f));
+        GameObject pendingPanel = CreateScheduleSection("PendingInboundPanel", splitContainer, new Vector2(0.75f, 0f), new Vector2(1f, 1f));
+
+        BuildScheduleHourRail(hourPanel.transform);
+        BuildScheduleSlotTimeline(slotPanel.transform);
+        BuildPendingApprovalQueue(pendingPanel.transform);
+    }
+
+    private GameObject CreateScheduleSection(string name, Transform parent, Vector2 anchorMin, Vector2 anchorMax)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform), typeof(Image));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = anchorMin;
+        rt.anchorMax = anchorMax;
+        rt.offsetMin = new Vector2(6f, 8f);
+        rt.offsetMax = new Vector2(-6f, -8f);
+        Image image = go.GetComponent<Image>();
+        image.color = new Color(0.065f, 0.075f, 0.095f, 0.98f);
+        ApplyScheduleRoundedImage(image);
+        return go;
+    }
+
+    private void BuildScheduleHourRail(Transform parent)
+    {
+        VerticalLayoutGroup layout = parent.gameObject.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(12, 12, 14, 14);
+        layout.spacing = 8f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        CreateScheduleText(parent, "Header", "SCHEDULE HOURS", 25f, FontStyles.Bold, TextAlignmentOptions.Center, 50f);
+
+        hourButtons.Clear();
+        for (int i = 0; i < 5; i++)
+        {
+            int index = i;
+            Button button = CreateScheduleButton(parent, $"HourButton_{i}", "--:--", 78f, new Color(0.12f, 0.14f, 0.17f));
+            button.onClick.AddListener(() => SelectHourFromIndex(index));
+            hourButtons.Add(button);
+        }
+    }
+
+    private void BuildScheduleSlotTimeline(Transform parent)
+    {
+        VerticalLayoutGroup layout = parent.gameObject.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(16, 16, 14, 14);
+        layout.spacing = 10f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        centerHeaderText = CreateScheduleText(parent, "CenterHeader", "SLOTS FOR 12:00", 26f, FontStyles.Bold, TextAlignmentOptions.Center, 50f);
+        slotsGridContainer = CreateScheduleScrollContent(parent, "SlotScrollView");
+    }
+
+    private void BuildPendingApprovalQueue(Transform parent)
+    {
+        VerticalLayoutGroup layout = parent.gameObject.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(14, 14, 14, 14);
+        layout.spacing = 10f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        pendingHeaderText = CreateScheduleText(parent, "PendingHeader", "PENDING INBOUND (0)", 23f, FontStyles.Bold, TextAlignmentOptions.Left, 50f);
+        requestsContainer = CreateScheduleScrollContent(parent, "PendingScrollView");
+    }
+
+    private TextMeshProUGUI CreateScheduleText(Transform parent, string name, string value, float fontSize, FontStyles style, TextAlignmentOptions alignment, float height)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI), typeof(LayoutElement));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+
+        TextMeshProUGUI text = go.GetComponent<TextMeshProUGUI>();
+        text.text = value;
+        text.fontSize = fontSize;
+        text.fontStyle = style;
+        text.alignment = alignment;
+        text.color = Color.white;
+        text.raycastTarget = false;
+        go.GetComponent<LayoutElement>().preferredHeight = height;
+        return text;
+    }
+
+    private Button CreateScheduleButton(Transform parent, string name, string label, float height, Color backgroundColor)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+
+        Image image = go.GetComponent<Image>();
+        image.color = backgroundColor;
+        ApplyScheduleRoundedImage(image);
+        Button button = go.GetComponent<Button>();
+        button.targetGraphic = image;
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.94f, 0.96f, 0.98f, 1f);
+        colors.pressedColor = new Color(0.82f, 0.85f, 0.88f, 1f);
+        colors.selectedColor = Color.white;
+        button.colors = colors;
+
+        LayoutElement element = go.GetComponent<LayoutElement>();
+        element.preferredHeight = height;
+
+        TextMeshProUGUI text = CreateScheduleText(go.transform, "Text", label, 27f, FontStyles.Bold, TextAlignmentOptions.Center, height);
+        RectTransform textRt = text.GetComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = new Vector2(8f, 4f);
+        textRt.offsetMax = new Vector2(-8f, -4f);
+        text.GetComponent<LayoutElement>().ignoreLayout = true;
+        return button;
+    }
+
+    private Transform CreateScheduleScrollContent(Transform parent, string name)
+    {
+        GameObject scrollGo = new GameObject(name, typeof(RectTransform), typeof(ScrollRect), typeof(LayoutElement));
+        scrollGo.layer = parent.gameObject.layer;
+        scrollGo.transform.SetParent(parent, false);
+        LayoutElement scrollElement = scrollGo.GetComponent<LayoutElement>();
+        scrollElement.flexibleHeight = 1f;
+
+        GameObject viewportGo = new GameObject("Viewport", typeof(RectTransform), typeof(Image), typeof(RectMask2D));
+        viewportGo.layer = parent.gameObject.layer;
+        viewportGo.transform.SetParent(scrollGo.transform, false);
+        RectTransform viewportRt = viewportGo.GetComponent<RectTransform>();
+        viewportRt.anchorMin = Vector2.zero;
+        viewportRt.anchorMax = Vector2.one;
+        viewportRt.offsetMin = Vector2.zero;
+        viewportRt.offsetMax = Vector2.zero;
+        viewportGo.GetComponent<Image>().color = new Color(1f, 1f, 1f, 0.01f);
+
+        GameObject contentGo = new GameObject("Content", typeof(RectTransform), typeof(VerticalLayoutGroup), typeof(ContentSizeFitter));
+        contentGo.layer = parent.gameObject.layer;
+        contentGo.transform.SetParent(viewportGo.transform, false);
+        RectTransform contentRt = contentGo.GetComponent<RectTransform>();
+        contentRt.anchorMin = new Vector2(0f, 1f);
+        contentRt.anchorMax = new Vector2(1f, 1f);
+        contentRt.pivot = new Vector2(0.5f, 1f);
+        contentRt.offsetMin = Vector2.zero;
+        contentRt.offsetMax = Vector2.zero;
+
+        VerticalLayoutGroup contentLayout = contentGo.GetComponent<VerticalLayoutGroup>();
+        contentLayout.spacing = 6f;
+        contentLayout.childControlWidth = true;
+        contentLayout.childControlHeight = true;
+        contentLayout.childForceExpandWidth = true;
+        contentLayout.childForceExpandHeight = false;
+        contentGo.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        ScrollRect scrollRect = scrollGo.GetComponent<ScrollRect>();
+        scrollRect.viewport = viewportRt;
+        scrollRect.content = contentRt;
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 28f;
+        return contentGo.transform;
     }
 
     private void InitializeLayoutRedesign()
@@ -628,7 +825,7 @@ public class AirportSchedulePanel : MonoBehaviour
 
     private void ScrollHoursUp()
     {
-        if (hourStartOffset > 6)
+        if (hourStartOffset > 0)
         {
             hourStartOffset--;
             RefreshAll();
@@ -637,7 +834,7 @@ public class AirportSchedulePanel : MonoBehaviour
 
     private void ScrollHoursDown()
     {
-        if (hourStartOffset < 17)
+        if (hourStartOffset < 19)
         {
             hourStartOffset++;
             RefreshAll();
@@ -646,7 +843,7 @@ public class AirportSchedulePanel : MonoBehaviour
 
     private void SelectHourFromIndex(int index)
     {
-        selectedHour = hourStartOffset + index;
+        selectedHour = NormalizeScheduleHour(hourStartOffset + index);
         RefreshAll();
     }
 
@@ -665,26 +862,34 @@ public class AirportSchedulePanel : MonoBehaviour
 
         for (int i = 0; i < 5; i++)
         {
-            int hourVal = hourStartOffset + i;
+            int hourVal = NormalizeScheduleHour(hourStartOffset + i);
             var btn = hourButtons[i];
             var img = btn.GetComponent<Image>();
             var txt = btn.GetComponentInChildren<TMP_Text>();
 
             bool isSelected = (hourVal == selectedHour);
+            bool isPastHour = IsScheduleHourElapsed(hourVal);
             if (txt != null)
             {
-                txt.text = isSelected ? $"► {hourVal:D2}:00" : $"{hourVal:D2}:00";
+                txt.text = $"{hourVal:D2}:00";
             }
 
             if (img != null)
             {
-                img.color = isSelected ? colorAvailable : new Color(0.24f, 0.24f, 0.27f);
+                img.color = isSelected
+                    ? new Color(0.07f, 0.19f, 0.27f, 1f)
+                    : (isPastHour ? new Color(0.18f, 0.19f, 0.21f, 1f) : new Color(0.12f, 0.14f, 0.17f, 1f));
             }
             if (txt != null)
             {
-                txt.color = isSelected ? Color.black : new Color(0.85f, 0.85f, 0.88f);
+                txt.color = isPastHour && !isSelected ? new Color(0.55f, 0.57f, 0.61f, 1f) : Color.white;
                 txt.fontStyle = isSelected ? FontStyles.Bold : FontStyles.Normal;
             }
+        }
+
+        if (centerHeaderText != null)
+        {
+            centerHeaderText.text = $"SLOTS FOR {selectedHour:D2}:00";
         }
     }
 
@@ -704,27 +909,168 @@ public class AirportSchedulePanel : MonoBehaviour
             SafeDestroy(child);
         }
 
-        // Show all 12 5-minute slots for the selected hour
+        // Show all 12 five-minute slots as a vertical schedule timeline.
         for (int m = 0; m < 60; m += 5)
         {
             int minuteVal = m;
-            GameObject cardGo;
-            if (slotCardPrefab != null)
-            {
-                cardGo = Instantiate(slotCardPrefab, slotsGridContainer);
-                cardGo.SetActive(true);
-            }
-            else
-            {
-                cardGo = CreateDefaultSlotCard(minuteVal);
-            }
-
-            ConfigureSlotCardState(cardGo, selectedHour, minuteVal);
-
-            var btn = cardGo.GetComponent<Button>() ?? cardGo.AddComponent<Button>();
-            btn.onClick.RemoveAllListeners();
+            GameObject cardGo = CreateScheduleSlotRow(selectedHour, minuteVal);
+            Button btn = cardGo.GetComponent<Button>();
             btn.onClick.AddListener(() => OnSlotCardClicked(selectedHour, minuteVal));
         }
+
+        Canvas.ForceUpdateCanvases();
+        LayoutRebuilder.ForceRebuildLayoutImmediate(slotsGridContainer.GetComponent<RectTransform>());
+    }
+
+    private GameObject CreateScheduleSlotRow(int hour, int minute)
+    {
+        GameObject row = new GameObject($"SlotRow_{hour:D2}_{minute:D2}", typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement), typeof(HorizontalLayoutGroup));
+        row.layer = slotsGridContainer.gameObject.layer;
+        row.transform.SetParent(slotsGridContainer, false);
+
+        LayoutElement rowElement = row.GetComponent<LayoutElement>();
+        rowElement.preferredHeight = 84f;
+
+        bool isSelected = hour == selectedSlotHour && minute == selectedSlotMinute;
+        bool isElapsed = IsScheduleSlotElapsed(hour, minute);
+        Image image = row.GetComponent<Image>();
+        image.color = isSelected
+            ? new Color(0.07f, 0.19f, 0.27f, 1f)
+            : (isElapsed ? new Color(0.18f, 0.19f, 0.21f, 1f) : new Color(0.105f, 0.12f, 0.15f, 1f));
+        ApplyScheduleRoundedImage(image);
+
+        Button button = row.GetComponent<Button>();
+        button.targetGraphic = image;
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.94f, 0.96f, 0.98f, 1f);
+        colors.pressedColor = new Color(0.82f, 0.85f, 0.88f, 1f);
+        colors.selectedColor = Color.white;
+        colors.disabledColor = Color.white;
+        button.colors = colors;
+        button.interactable = !isElapsed;
+
+        HorizontalLayoutGroup layout = row.GetComponent<HorizontalLayoutGroup>();
+        layout.padding = new RectOffset(24, 24, 0, 0);
+        layout.spacing = 18f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = true;
+
+        List<Flight> matchedFlights = GetFlightsForScheduleSlot(hour, minute);
+        string status = "Available";
+        string flightNumber = "";
+        string route = "";
+        Color statusColor = colorAvailable;
+
+        if (matchedFlights.Count > 1)
+        {
+            status = "Slot Conflict";
+            flightNumber = $"{matchedFlights.Count} flights";
+            statusColor = colorBlocked;
+        }
+        else if (matchedFlights.Count == 1)
+        {
+            Flight flight = matchedFlights[0];
+            bool isDeparture = flight.fromAirport == currentAirport.airportName;
+            status = isDeparture ? "Scheduled DEP" : (flight.landingApproved ? "Scheduled ARR" : "Pending ARR");
+            statusColor = isDeparture ? colorConflict : (flight.landingApproved ? colorConfirmed : colorPending);
+            flightNumber = flight.flightName;
+            route = $"{flight.fromAirport} → {flight.toAirport}";
+        }
+
+        if (isElapsed)
+        {
+            status = matchedFlights.Count == 0 ? "Elapsed" : status;
+            statusColor = new Color(0.52f, 0.54f, 0.58f, 1f);
+        }
+
+        Color primaryTextColor = isElapsed ? new Color(0.58f, 0.60f, 0.64f, 1f) : Color.white;
+        Color routeColor = isElapsed ? new Color(0.48f, 0.50f, 0.54f, 1f) : new Color(0.76f, 0.79f, 0.84f);
+        CreateScheduleRowText(row.transform, "Time", $"{hour:D2}:{minute:D2}", 30f, primaryTextColor, FontStyles.Bold, 135f, 0f, TextAlignmentOptions.Left);
+        CreateScheduleRowText(row.transform, "Indicator", "●", 23f, statusColor, FontStyles.Bold, 30f, 0f, TextAlignmentOptions.Center);
+        CreateScheduleRowText(row.transform, "Status", status, 28f, statusColor, FontStyles.Bold, 1f, 1f, TextAlignmentOptions.Left);
+        CreateScheduleRowText(row.transform, "Flight", flightNumber, 26f, statusColor, FontStyles.Bold, 165f, 0f, TextAlignmentOptions.Right);
+        CreateScheduleRowText(row.transform, "Route", route, 23f, routeColor, FontStyles.Normal, 220f, 0f, TextAlignmentOptions.Right);
+        return row;
+    }
+
+    private bool IsScheduleHourElapsed(int hour)
+    {
+        if (WorldClockManager.Instance == null) return false;
+
+        int hourEnd = GetRelativeScheduleMinutes(hour, 55);
+        return hourEnd <= GetScheduleCutoffMinutes();
+    }
+
+    private bool IsScheduleSlotElapsed(int hour, int minute)
+    {
+        if (WorldClockManager.Instance == null) return false;
+        return GetRelativeScheduleMinutes(hour, minute) <= GetScheduleCutoffMinutes();
+    }
+
+    private int GetScheduleCutoffMinutes()
+    {
+        System.DateTime now = WorldClockManager.Instance.CurrentTime;
+        int roundedMinute = ((now.Minute + 4) / 5) * 5;
+        return now.Hour * 60 + roundedMinute;
+    }
+
+    private int GetRelativeScheduleMinutes(int hour, int minute)
+    {
+        System.DateTime now = WorldClockManager.Instance.CurrentTime;
+        int nowMinutes = now.Hour * 60 + now.Minute;
+        int slotMinutes = hour * 60 + minute;
+        int delta = slotMinutes - nowMinutes;
+
+        if (delta < -720) slotMinutes += 1440;
+        else if (delta > 720) slotMinutes -= 1440;
+        return slotMinutes;
+    }
+
+    private int NormalizeScheduleHour(int hour)
+    {
+        return ((hour % 24) + 24) % 24;
+    }
+
+    private TMP_Text CreateScheduleRowText(Transform parent, string name, string value, float fontSize, Color color, FontStyles style, float preferredWidth, float flexibleWidth, TextAlignmentOptions alignment)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform), typeof(TextMeshProUGUI), typeof(LayoutElement));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+
+        TextMeshProUGUI text = go.GetComponent<TextMeshProUGUI>();
+        text.text = value;
+        text.fontSize = fontSize;
+        text.color = color;
+        text.fontStyle = style;
+        text.alignment = alignment;
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        text.overflowMode = TextOverflowModes.Ellipsis;
+        text.raycastTarget = false;
+
+        LayoutElement element = go.GetComponent<LayoutElement>();
+        element.preferredWidth = preferredWidth;
+        element.flexibleWidth = flexibleWidth;
+        return text;
+    }
+
+    private List<Flight> GetFlightsForScheduleSlot(int hour, int minute)
+    {
+        List<Flight> matches = new List<Flight>();
+        if (FlightManager.Instance == null || currentAirport == null) return matches;
+
+        foreach (Flight flight in FlightManager.Instance.AllFlights)
+        {
+            bool departureMatch = flight.fromAirport == currentAirport.airportName && flight.takeoffSlot != null && flight.takeoffSlot.hours == hour && flight.takeoffSlot.minutes == minute;
+            bool arrivalMatch = flight.toAirport == currentAirport.airportName && flight.landingSlot != null && flight.landingSlot.hours == hour && flight.landingSlot.minutes == minute;
+            if (departureMatch || arrivalMatch)
+            {
+                matches.Add(flight);
+            }
+        }
+        return matches;
     }
 
     private GameObject CreateDefaultSlotCard(int minute)
@@ -1059,26 +1405,21 @@ public class AirportSchedulePanel : MonoBehaviour
 
         if (incomingRequests.Count == 0)
         {
+            if (pendingHeaderText != null) pendingHeaderText.text = "PENDING INBOUND (0)";
             CreateNoRequestsPlaceholder();
             return;
         }
 
+        if (pendingHeaderText != null) pendingHeaderText.text = $"PENDING INBOUND ({incomingRequests.Count})";
+
         foreach (Flight reqFlight in incomingRequests)
         {
             Flight f = reqFlight;
-            GameObject cardGo;
-            if (requestCardPrefab != null)
-            {
-                cardGo = Instantiate(requestCardPrefab, requestsContainer);
-                cardGo.SetActive(true);
-            }
-            else
-            {
-                cardGo = CreateDefaultRequestCard(f);
-            }
+            GameObject cardGo = CreateCompactRequestCard(f);
 
-            var rejectBtn = cardGo.transform.Find("RejectButton")?.GetComponent<Button>();
-            var acceptBtn = cardGo.transform.Find("AcceptButton")?.GetComponent<Button>();
+            var rejectBtn = cardGo.transform.Find("Actions/RejectButton")?.GetComponent<Button>();
+            var acceptBtn = cardGo.transform.Find("Actions/AcceptButton")?.GetComponent<Button>();
+            var viewBtn = cardGo.transform.Find("Actions/ViewButton")?.GetComponent<Button>();
 
             if (rejectBtn != null)
             {
@@ -1090,6 +1431,12 @@ public class AirportSchedulePanel : MonoBehaviour
             {
                 acceptBtn.onClick.RemoveAllListeners();
                 acceptBtn.onClick.AddListener(() => ProcessAccept(f));
+            }
+
+            if (viewBtn != null)
+            {
+                viewBtn.onClick.RemoveAllListeners();
+                viewBtn.onClick.AddListener(() => FocusArrivalSlot(f));
             }
         }
 
@@ -1114,6 +1461,95 @@ public class AirportSchedulePanel : MonoBehaviour
         tmp.fontSize = 14;
         tmp.color = new Color(0.55f, 0.55f, 0.58f);
         tmp.alignment = TextAlignmentOptions.Center;
+        LayoutElement element = go.AddComponent<LayoutElement>();
+        element.preferredHeight = 110f;
+    }
+
+    private GameObject CreateCompactRequestCard(Flight flight)
+    {
+        GameObject card = new GameObject($"RequestCard_{flight.flightName}", typeof(RectTransform), typeof(Image), typeof(LayoutElement), typeof(VerticalLayoutGroup));
+        card.layer = requestsContainer.gameObject.layer;
+        card.transform.SetParent(requestsContainer, false);
+        Image cardImage = card.GetComponent<Image>();
+        cardImage.color = new Color(0.105f, 0.12f, 0.15f, 1f);
+        ApplyScheduleRoundedImage(cardImage);
+
+        LayoutElement cardElement = card.GetComponent<LayoutElement>();
+        cardElement.preferredHeight = 228f;
+
+        VerticalLayoutGroup layout = card.GetComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(16, 16, 14, 14);
+        layout.spacing = 6f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        string requestedTime = flight.landingSlot != null ? flight.landingSlot.GetTimeString() : flight.expectedArrival;
+        bool hasConflict = flight.landingSlot != null && flight.landingSlot.isBooked && flight.landingSlot.bookedByFlight != flight.flightName;
+
+        CreateScheduleText(card.transform, "FlightHeader", $"{flight.flightName}     {requestedTime}", 26f, FontStyles.Bold, TextAlignmentOptions.Left, 36f);
+        CreateScheduleText(card.transform, "Route", $"{flight.fromAirport} → {flight.toAirport}", 22f, FontStyles.Normal, TextAlignmentOptions.Left, 30f);
+        CreateScheduleText(card.transform, "Aircraft", $"{flight.aircraftType} · ARR Request", 19f, FontStyles.Normal, TextAlignmentOptions.Left, 27f);
+        TextMeshProUGUI conflictText = CreateScheduleText(card.transform, "Conflict", hasConflict ? "Slot conflict" : "No conflict", 19f, FontStyles.Bold, TextAlignmentOptions.Left, 27f);
+        conflictText.color = hasConflict ? colorBlocked : colorAvailable;
+
+        GameObject actions = new GameObject("Actions", typeof(RectTransform), typeof(LayoutElement), typeof(HorizontalLayoutGroup));
+        actions.layer = card.layer;
+        actions.transform.SetParent(card.transform, false);
+        actions.GetComponent<LayoutElement>().preferredHeight = 54f;
+        HorizontalLayoutGroup actionLayout = actions.GetComponent<HorizontalLayoutGroup>();
+        actionLayout.spacing = 6f;
+        actionLayout.childControlWidth = true;
+        actionLayout.childControlHeight = true;
+        actionLayout.childForceExpandWidth = true;
+        actionLayout.childForceExpandHeight = true;
+
+        CreateApprovalActionButton(actions.transform, "RejectButton", "REJECT", new Color(0.62f, 0.16f, 0.18f, 1f));
+        CreateApprovalActionButton(actions.transform, "ViewButton", "VIEW", new Color(0.12f, 0.42f, 0.68f, 1f));
+        Button acceptButton = CreateApprovalActionButton(actions.transform, "AcceptButton", hasConflict ? "CONFLICT" : "ACCEPT", hasConflict ? colorConflict : colorAvailable);
+        acceptButton.interactable = !hasConflict;
+        return card;
+    }
+
+    private void FocusArrivalSlot(Flight flight)
+    {
+        if (flight == null || flight.landingSlot == null) return;
+
+        selectedHour = flight.landingSlot.hours;
+        hourStartOffset = selectedHour - 2;
+        selectedSlotHour = flight.landingSlot.hours;
+        selectedSlotMinute = flight.landingSlot.minutes;
+        selectedSlotFlight = flight;
+        RefreshAll();
+    }
+
+    private Button CreateApprovalActionButton(Transform parent, string name, string label, Color color)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button), typeof(LayoutElement));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+        Image image = go.GetComponent<Image>();
+        image.color = color;
+        ApplyScheduleRoundedImage(image);
+
+        Button button = go.GetComponent<Button>();
+        button.targetGraphic = image;
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.94f, 0.96f, 0.98f, 1f);
+        colors.pressedColor = new Color(0.82f, 0.85f, 0.88f, 1f);
+        colors.selectedColor = Color.white;
+        button.colors = colors;
+
+        TextMeshProUGUI text = CreateScheduleText(go.transform, "Text", label, 18f, FontStyles.Bold, TextAlignmentOptions.Center, 54f);
+        RectTransform textRt = text.GetComponent<RectTransform>();
+        textRt.anchorMin = Vector2.zero;
+        textRt.anchorMax = Vector2.one;
+        textRt.offsetMin = Vector2.zero;
+        textRt.offsetMax = Vector2.zero;
+        text.GetComponent<LayoutElement>().ignoreLayout = true;
+        return button;
     }
 
     private GameObject CreateDefaultRequestCard(Flight f)

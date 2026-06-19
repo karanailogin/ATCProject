@@ -60,10 +60,18 @@ public class FlightDetailsPanel : MonoBehaviour
     public Button timePickerCancelButton;
     public Button timePickerConfirmButton;
 
+    [Header("Redesigned Time Picker Fields")]
+    public TMP_Text airportTitleText;
+    public TMP_Text pickerModeText;
+    public TMP_Text currentTimeText;
+    public TMP_Text selectedSlotText;
+
     [Header("Panel Containment")]
     public GameObject panelContainer;
 
     private static FlightDetailsPanel instance;
+    private static Sprite roundedUiSprite;
+    private static Sprite roundedBorderSprite;
     private Flight currentFlight;
 
     // Temporary values for pending changes
@@ -77,6 +85,36 @@ public class FlightDetailsPanel : MonoBehaviour
     private bool isPickingDepartureTime;
     private int modalSelectedHour;
     private int modalSelectedMinute;
+    private int modalSelectedHourIndex;
+    private int pickerWindowStartMinutes;
+    private int pickerWindowEndMinutes;
+    private readonly List<int> pickerHourValues = new List<int>();
+    private GameObject selectedTimeSlotRow;
+    private TMP_Text timeSlotsHeaderText;
+    private TMP_Text airportInfoValueText;
+
+    private readonly Color pickerBackgroundColor = new Color(0.045f, 0.055f, 0.07f, 0.96f);
+    private readonly Color pickerPanelColor = new Color(0.075f, 0.09f, 0.115f, 0.98f);
+    private readonly Color pickerRowColor = new Color(0.12f, 0.145f, 0.18f, 1.0f);
+    private readonly Color pickerBorderColor = new Color(0.22f, 0.27f, 0.34f, 1.0f);
+    private readonly Color pickerMutedTextColor = new Color(0.72f, 0.74f, 0.78f, 1.0f);
+    private readonly Color pickerGreenColor = new Color(0.11f, 0.72f, 0.32f, 1.0f);
+    private readonly Color pickerRedColor = new Color(1.0f, 0.31f, 0.31f, 1.0f);
+    private readonly Color pickerOrangeColor = new Color(1.0f, 0.53f, 0.16f, 1.0f);
+    private readonly Color pickerYellowColor = new Color(1.0f, 0.82f, 0.22f, 1.0f);
+    private readonly Color pickerSelectionFillColor = new Color(0.07f, 0.19f, 0.27f, 1.0f);
+    private readonly Color pickerSelectionBorderColor = new Color(0.22f, 0.74f, 0.97f, 1.0f);
+    private const string SampleAirportCode = "MUM";
+    private const float HourRowHeight = 66f;
+    private const float HourRowSpacing = 8f;
+    private const float HourFontSize = 30f;
+    private const float SlotRowHeight = 68f;
+    private const float SlotRowSpacing = 9f;
+    private const float SlotTimeFontSize = 29f;
+    private const float SlotStatusFontSize = 29f;
+    private const float SlotFlightFontSize = 29f;
+
+    private const int PickerWindowMinutes = 120;
 
     private void Awake()
     {
@@ -89,6 +127,8 @@ public class FlightDetailsPanel : MonoBehaviour
             Destroy(gameObject);
             return;
         }
+
+        BuildTimePickerScheduleLayout();
 
         // Initialize button listeners
         SetupInfoRowListeners();
@@ -509,36 +549,251 @@ public class FlightDetailsPanel : MonoBehaviour
         isPickingDepartureTime = isDeparture;
         CloseAllPopups();
 
+        if (currentFlight != null)
+        {
+            string airportCode = SampleAirportCode;
+            if (airportTitleText != null) airportTitleText.text = $"{airportCode} Schedule";
+            if (pickerModeText != null) pickerModeText.text = isDeparture ? "Select Departure Time" : "Select Arrival Time";
+            if (airportInfoValueText != null) airportInfoValueText.text = airportCode;
+            if (currentTimeText != null)
+            {
+                currentTimeText.text = WorldClockManager.Instance != null
+                    ? WorldClockManager.Instance.CurrentTime.ToString("HH:mm")
+                    : "--:--";
+            }
+            if (selectedSlotText != null)
+            {
+                selectedSlotText.text = "None";
+                selectedSlotText.color = pickerYellowColor;
+            }
+        }
+
         if (timePickerTitleText != null && currentFlight != null)
         {
-            string airportCode = isDeparture ? currentFlight.fromAirport : currentFlight.toAirport;
-            timePickerTitleText.text = isDeparture ? $"{airportCode} Schedule\nSelect Departure Time" : $"{airportCode} Schedule\nSelect Arrival Time";
+            timePickerTitleText.text = $"{SampleAirportCode} Schedule";
             
             var rt = timePickerTitleText.GetComponent<RectTransform>();
             if (rt != null)
             {
-                rt.anchoredPosition = new Vector2(rt.anchoredPosition.x, -10.0f);
-                rt.sizeDelta = new Vector2(rt.sizeDelta.x, 50.0f);
+                rt.anchoredPosition = Vector2.zero;
             }
         }
 
-        // Set initial selected values in picker modal
-        modalSelectedHour = isDeparture ? tempDepHour : tempArrHour;
-        modalSelectedMinute = isDeparture ? tempDepMinute : tempArrMinute;
+        InitializePickerWindow(isDeparture);
+
+        CanvasGroup popupCanvasGroup = null;
+        if (timePickerPopup != null)
+        {
+            popupCanvasGroup = timePickerPopup.GetComponent<CanvasGroup>();
+            if (popupCanvasGroup == null)
+            {
+                popupCanvasGroup = timePickerPopup.AddComponent<CanvasGroup>();
+            }
+            popupCanvasGroup.alpha = 0f;
+            timePickerPopup.SetActive(true);
+            timePickerPopup.transform.SetAsLastSibling();
+        }
 
         // Regenerate Hour Tabs & Minute Grid
         RedrawHourTabs();
         RedrawTimeSlotsGrid();
-
-        if (timePickerPopup != null)
+        ForceTimePickerLayoutRebuild();
+        if (popupCanvasGroup != null)
         {
-            timePickerPopup.SetActive(true);
+            popupCanvasGroup.alpha = 1f;
         }
+    }
+
+    private void BuildTimePickerScheduleLayout()
+    {
+        if (timePickerPopup == null) return;
+
+        var canvas = GameObject.Find("MainCanvas");
+        if (canvas != null && timePickerPopup.transform.parent != canvas.transform)
+        {
+            timePickerPopup.transform.SetParent(canvas.transform, false);
+        }
+        timePickerPopup.transform.SetAsLastSibling();
+
+        RectTransform popupRt = EnsureRectTransform(timePickerPopup);
+        StretchToParent(popupRt, Vector2.zero);
+        EnsureImage(timePickerPopup, pickerBackgroundColor);
+
+        List<GameObject> childrenToDestroy = new List<GameObject>();
+        foreach (Transform child in timePickerPopup.transform)
+        {
+            childrenToDestroy.Add(child.gameObject);
+        }
+        foreach (var child in childrenToDestroy)
+        {
+            SafeDestroy(child);
+        }
+
+        GameObject modal = CreatePanel("ScheduleFrame", timePickerPopup.transform, pickerBackgroundColor);
+        RectTransform modalRt = EnsureRectTransform(modal);
+        StretchToParent(modalRt, new Vector2(8f, 8f));
+        VerticalLayoutGroup modalLayout = modal.AddComponent<VerticalLayoutGroup>();
+        modalLayout.padding = new RectOffset(30, 30, 24, 26);
+        modalLayout.spacing = 12f;
+        modalLayout.childControlWidth = true;
+        modalLayout.childControlHeight = true;
+        modalLayout.childForceExpandWidth = true;
+        modalLayout.childForceExpandHeight = false;
+
+        BuildPickerHeader(modal.transform);
+        BuildPickerInfoBar(modal.transform);
+        BuildPickerBody(modal.transform);
+        BuildPickerFooter(modal.transform);
+    }
+
+    private void BuildPickerHeader(Transform parent)
+    {
+        GameObject header = CreateLayoutObject("Header", parent, 100f, -1f, false);
+
+        timePickerTitleText = CreateText("AirportTitleText", header.transform, "MUM Schedule", 42f, FontStyles.Bold, TextAlignmentOptions.Center, Color.white);
+        RectTransform titleRt = EnsureRectTransform(timePickerTitleText.gameObject);
+        titleRt.anchorMin = new Vector2(0f, 0.46f);
+        titleRt.anchorMax = new Vector2(1f, 1f);
+        titleRt.offsetMin = new Vector2(120f, 0f);
+        titleRt.offsetMax = new Vector2(-120f, 0f);
+        airportTitleText = timePickerTitleText;
+
+        pickerModeText = CreateText("PickerModeText", header.transform, "Select Departure Time", 27f, FontStyles.Normal, TextAlignmentOptions.Center, Color.white);
+        RectTransform subtitleRt = EnsureRectTransform(pickerModeText.gameObject);
+        subtitleRt.anchorMin = new Vector2(0f, 0f);
+        subtitleRt.anchorMax = new Vector2(1f, 0.48f);
+        subtitleRt.offsetMin = new Vector2(120f, 0f);
+        subtitleRt.offsetMax = new Vector2(-120f, 0f);
+
+        Button closeButton = CreateButton("CloseButton", header.transform, "X", pickerBackgroundColor, Color.white, 34f);
+        RectTransform closeRt = EnsureRectTransform(closeButton.gameObject);
+        closeRt.anchorMin = new Vector2(1f, 0.5f);
+        closeRt.anchorMax = new Vector2(1f, 0.5f);
+        closeRt.sizeDelta = new Vector2(64f, 64f);
+        closeRt.anchoredPosition = new Vector2(-18f, 8f);
+        closeButton.onClick.AddListener(() => { if (timePickerPopup != null) timePickerPopup.SetActive(false); });
+    }
+
+    private void BuildPickerInfoBar(Transform parent)
+    {
+        GameObject infoBar = CreatePanel("InfoBar", parent, new Color(0.095f, 0.11f, 0.14f, 1.0f));
+        AddLayoutElement(infoBar, 92f, -1f, false);
+        HorizontalLayoutGroup layout = infoBar.AddComponent<HorizontalLayoutGroup>();
+        layout.padding = new RectOffset(120, 120, 12, 12);
+        layout.spacing = 54f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = true;
+
+        airportInfoValueText = CreateInfoBlock(infoBar.transform, "Airport", "MUM", Color.white);
+        currentTimeText = CreateInfoBlock(infoBar.transform, "Current Time", "11:07", Color.white);
+        selectedSlotText = CreateInfoBlock(infoBar.transform, "Selected Slot", "None", pickerYellowColor);
+    }
+
+    private TMP_Text CreateInfoBlock(Transform parent, string label, string value, Color valueColor)
+    {
+        GameObject block = CreatePanel($"{label.Replace(" ", "")}Block", parent, new Color(0f, 0f, 0f, 0f));
+        HorizontalLayoutGroup blockLayout = block.AddComponent<HorizontalLayoutGroup>();
+        blockLayout.spacing = 18f;
+        blockLayout.childControlWidth = true;
+        blockLayout.childControlHeight = true;
+        blockLayout.childForceExpandWidth = false;
+        blockLayout.childForceExpandHeight = true;
+
+        TMP_Text icon = CreateText("Icon", block.transform, GetInfoIcon(label), 36f, FontStyles.Bold, TextAlignmentOptions.Center, pickerGreenColor);
+        AddLayoutElement(icon.gameObject, -1f, 58f, false);
+
+        GameObject textStack = CreateLayoutObject("TextStack", block.transform, -1f, -1f, true);
+        VerticalLayoutGroup stackLayout = textStack.AddComponent<VerticalLayoutGroup>();
+        stackLayout.spacing = 1f;
+        stackLayout.childControlWidth = true;
+        stackLayout.childControlHeight = true;
+        stackLayout.childForceExpandWidth = true;
+        stackLayout.childForceExpandHeight = true;
+
+        CreateText("Label", textStack.transform, label, 18f, FontStyles.Normal, TextAlignmentOptions.Left, pickerMutedTextColor);
+        TMP_Text valueText = CreateText("Value", textStack.transform, value, 24f, FontStyles.Bold, TextAlignmentOptions.Left, valueColor);
+        return valueText;
+    }
+
+    private void BuildPickerBody(Transform parent)
+    {
+        GameObject body = CreateLayoutObject("Body", parent, -1f, -1f, true);
+        HorizontalLayoutGroup bodyLayout = body.AddComponent<HorizontalLayoutGroup>();
+        bodyLayout.spacing = 10f;
+        bodyLayout.childControlWidth = true;
+        bodyLayout.childControlHeight = true;
+        bodyLayout.childForceExpandWidth = false;
+        bodyLayout.childForceExpandHeight = true;
+        AddLayoutElement(body, -1f, -1f, true);
+
+        BuildHourPanel(body.transform);
+        BuildSlotPanel(body.transform);
+    }
+
+    private void BuildHourPanel(Transform parent)
+    {
+        GameObject panel = CreatePanel("HourPickerPanel", parent, pickerPanelColor);
+        LayoutElement panelLayout = AddLayoutElement(panel, -1f, 0f, true);
+        panelLayout.flexibleWidth = 3f;
+        VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(14, 14, 10, 12);
+        layout.spacing = 10f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        TMP_Text heading = CreateText("Heading", panel.transform, "SELECTABLE HOURS", 22f, FontStyles.Bold, TextAlignmentOptions.Center, Color.white);
+        AddLayoutElement(heading.gameObject, 38f, -1f, false);
+
+        ScrollRect scrollRect = CreateScrollRect("HourScrollView", panel.transform, out RectTransform content);
+        SetScrollContentSpacing(content, HourRowSpacing);
+        hourTabsContainer = content;
+        AddLayoutElement(scrollRect.gameObject, -1f, -1f, true);
+    }
+
+    private void BuildSlotPanel(Transform parent)
+    {
+        GameObject panel = CreatePanel("SlotListPanel", parent, pickerPanelColor);
+        LayoutElement panelLayout = AddLayoutElement(panel, -1f, 0f, true);
+        panelLayout.flexibleWidth = 7f;
+        VerticalLayoutGroup layout = panel.AddComponent<VerticalLayoutGroup>();
+        layout.padding = new RectOffset(24, 24, 10, 20);
+        layout.spacing = 10f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+
+        timeSlotsHeaderText = CreateText("Heading", panel.transform, "TIME SLOTS FOR 11:00", 22f, FontStyles.Bold, TextAlignmentOptions.Center, Color.white);
+        AddLayoutElement(timeSlotsHeaderText.gameObject, 38f, -1f, false);
+
+        ScrollRect scrollRect = CreateScrollRect("SlotScrollView", panel.transform, out RectTransform content);
+        SetScrollContentSpacing(content, SlotRowSpacing);
+        timeSlotsGridContainer = content;
+        AddLayoutElement(scrollRect.gameObject, -1f, -1f, true);
+    }
+
+    private void BuildPickerFooter(Transform parent)
+    {
+        GameObject footer = CreateLayoutObject("Footer", parent, 86f, -1f, false);
+        HorizontalLayoutGroup layout = footer.AddComponent<HorizontalLayoutGroup>();
+        layout.spacing = 44f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = true;
+
+        timePickerCancelButton = CreateButton("CancelButton", footer.transform, "CANCEL", pickerRowColor, Color.white, 26f);
+        timePickerConfirmButton = CreateButton("ConfirmButton", footer.transform, "CONFIRM", pickerGreenColor, Color.white, 26f);
     }
 
     private void SafeDestroy(GameObject go)
     {
         if (go == null) return;
+        go.SetActive(false);
         go.transform.SetParent(null); // Detach immediately so it doesn't affect active layouts
         if (Application.isPlaying)
         {
@@ -550,44 +805,13 @@ public class FlightDetailsPanel : MonoBehaviour
         }
     }
 
-    private GameObject CreateHourControlObject(string name, string text)
-    {
-        GameObject go;
-        if (hourTabPrefab != null)
-        {
-            go = Instantiate(hourTabPrefab, hourTabsContainer);
-            go.SetActive(true);
-            go.name = name;
-        }
-        else
-        {
-            go = new GameObject(name);
-            go.transform.SetParent(hourTabsContainer, false);
-            go.AddComponent<Image>().color = chipInactiveBgColor;
-            var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
-            txt.transform.SetParent(go.transform, false);
-            txt.fontSize = 16;
-            txt.alignment = TextAlignmentOptions.Center;
-            go.AddComponent<Button>();
-        }
-
-        var textComp = go.GetComponentInChildren<TMP_Text>();
-        if (textComp != null)
-        {
-            textComp.text = text;
-        }
-        return go;
-    }
-
     private void RedrawHourTabs()
     {
         if (hourTabsContainer == null) return;
 
-        // Safely clear previous elements, leaving template if it is in-hierarchy
         List<GameObject> childrenToDestroy = new List<GameObject>();
         foreach (Transform child in hourTabsContainer)
         {
-            if (hourTabPrefab != null && child.gameObject == hourTabPrefab) continue;
             childrenToDestroy.Add(child.gameObject);
         }
 
@@ -596,60 +820,54 @@ public class FlightDetailsPanel : MonoBehaviour
             SafeDestroy(child);
         }
 
-        // Create Left Arrow (<)
-        GameObject leftArrowGo = CreateHourControlObject("LeftArrow", "<");
-        var leftBtn = leftArrowGo.GetComponent<Button>();
-        var leftLayout = leftArrowGo.GetComponent<LayoutElement>() ?? leftArrowGo.AddComponent<LayoutElement>();
-        leftLayout.preferredWidth = 80;
-        leftLayout.preferredHeight = 40;
-        StylePickerElement(leftArrowGo, false);
-
-        leftBtn.onClick.RemoveAllListeners();
-        leftBtn.onClick.AddListener(() => {
-            if (modalSelectedHour > 6)
+        for (int i = 0; i < pickerHourValues.Count; i++)
+        {
+            int index = i;
+            int absoluteHour = pickerHourValues[i];
+            string label = FormatPickerHour(absoluteHour);
+            Button hourButton = CreateButton($"HourButton_{label.Replace("+", "plus_").Replace(":", "_")}", hourTabsContainer, label, pickerRowColor, Color.white, HourFontSize);
+            AddLayoutElement(hourButton.gameObject, HourRowHeight, -1f, false);
+            ConfigureStretchRow(hourButton.gameObject, HourRowHeight);
+            StyleHourButton(hourButton.gameObject, index == modalSelectedHourIndex);
+            hourButton.onClick.AddListener(() =>
             {
-                modalSelectedHour--;
-                RedrawHourTabs();
+                modalSelectedHourIndex = index;
+                modalSelectedHour = NormalizeHour(absoluteHour);
+                modalSelectedMinute = GetFirstSelectableMinute(absoluteHour);
+                if (selectedSlotText != null)
+                {
+                    selectedSlotText.text = "None";
+                    selectedSlotText.color = pickerYellowColor;
+                }
+                RefreshHourButtonStyles();
                 RedrawTimeSlotsGrid();
-            }
-        });
+            });
+        }
 
-        // Create Center Hour Text (HOUR: XX:00)
-        GameObject centerHourGo = CreateHourControlObject("CenterHour", $"{modalSelectedHour:D2}:00");
-        var centerBtn = centerHourGo.GetComponent<Button>();
-        if (centerBtn != null) centerBtn.interactable = false;
-        var centerLayout = centerHourGo.GetComponent<LayoutElement>() ?? centerHourGo.AddComponent<LayoutElement>();
-        centerLayout.preferredWidth = 180;
-        centerLayout.preferredHeight = 40;
-        StylePickerElement(centerHourGo, true);
+        RefreshScrollContent(hourTabsContainer as RectTransform, HourRowHeight, HourRowSpacing);
+    }
 
-        // Create Right Arrow (>)
-        GameObject rightArrowGo = CreateHourControlObject("RightArrow", ">");
-        var rightBtn = rightArrowGo.GetComponent<Button>();
-        var rightLayout = rightArrowGo.GetComponent<LayoutElement>() ?? rightArrowGo.AddComponent<LayoutElement>();
-        rightLayout.preferredWidth = 80;
-        rightLayout.preferredHeight = 40;
-        StylePickerElement(rightArrowGo, false);
+    private void RefreshHourButtonStyles()
+    {
+        if (hourTabsContainer == null) return;
 
-        rightBtn.onClick.RemoveAllListeners();
-        rightBtn.onClick.AddListener(() => {
-            if (modalSelectedHour < 21)
-            {
-                modalSelectedHour++;
-                RedrawHourTabs();
-                RedrawTimeSlotsGrid();
-            }
-        });
+        int index = 0;
+        foreach (Transform child in hourTabsContainer)
+        {
+            StyleHourButton(child.gameObject, index == modalSelectedHourIndex);
+            index++;
+        }
     }
 
     private void RedrawTimeSlotsGrid()
     {
         if (timeSlotsGridContainer == null) return;
 
+        selectedTimeSlotRow = null;
+
         List<GameObject> childrenToDestroy = new List<GameObject>();
         foreach (Transform child in timeSlotsGridContainer)
         {
-            if (timeSlotPrefab != null && child.gameObject == timeSlotPrefab) continue;
             childrenToDestroy.Add(child.gameObject);
         }
 
@@ -658,43 +876,137 @@ public class FlightDetailsPanel : MonoBehaviour
             SafeDestroy(child);
         }
 
-        // Generate dynamic 5-minute slots for the selected hour
-        for (int m = 0; m < 60; m += 5)
+        if (pickerHourValues.Count == 0) return;
+
+        int selectedAbsoluteHour = pickerHourValues[Mathf.Clamp(modalSelectedHourIndex, 0, pickerHourValues.Count - 1)];
+        string hourLabel = FormatPickerHour(selectedAbsoluteHour);
+        if (timeSlotsHeaderText != null)
         {
-            int minVal = m;
-            GameObject slotGo;
-            if (timeSlotPrefab != null)
+            timeSlotsHeaderText.text = $"TIME SLOTS FOR {hourLabel}";
+        }
+
+        int hourStartMinutes = selectedAbsoluteHour * 60;
+        for (int minute = 0; minute < 60; minute += 5)
+        {
+            int slotTotalMinutes = hourStartMinutes + minute;
+            if (slotTotalMinutes < pickerWindowStartMinutes || slotTotalMinutes > pickerWindowEndMinutes)
             {
-                slotGo = Instantiate(timeSlotPrefab, timeSlotsGridContainer);
-                slotGo.SetActive(true);
-            }
-            else
-            {
-                slotGo = new GameObject($"Slot_{minVal:D2}");
-                slotGo.transform.SetParent(timeSlotsGridContainer, false);
-                slotGo.AddComponent<Image>().color = chipInactiveBgColor;
-                var txt = new GameObject("Text").AddComponent<TextMeshProUGUI>();
-                txt.transform.SetParent(slotGo.transform, false);
-                txt.fontSize = 14;
-                txt.alignment = TextAlignmentOptions.Center;
-                slotGo.AddComponent<Button>();
+                continue;
             }
 
-            var btn = slotGo.GetComponent<Button>();
-            var textComp = slotGo.GetComponentInChildren<TMP_Text>();
-            if (textComp != null)
+            AddWindowSlotRow(slotTotalMinutes);
+        }
+
+        RefreshScrollContent(timeSlotsGridContainer as RectTransform, SlotRowHeight, SlotRowSpacing);
+    }
+
+    private void AddWindowSlotRow(int totalMinutes)
+    {
+        int minute = totalMinutes % 60;
+        string time = FormatPickerTime(totalMinutes);
+
+        switch (minute)
+        {
+            case 15:
+                AddSampleSlotRow(time, "Booked ARR", "A00100", pickerRedColor);
+                break;
+            case 30:
+                AddSampleSlotRow(time, "Booked DEP", "A00105", pickerOrangeColor);
+                break;
+            case 45:
+                AddSampleSlotRow(time, "Pending ARR", "A00112", pickerYellowColor);
+                break;
+            case 55:
+                AddSampleSlotRow(time, "Booked DEP", "A00118", pickerOrangeColor);
+                break;
+            default:
+                AddSampleSlotRow(time, "Available", "", pickerGreenColor);
+                break;
+        }
+    }
+
+    private void AddSampleSlotRow(string time, string status, string flightId, Color statusColor)
+    {
+        Button rowButton = CreateButton($"SlotRow_{time.Replace(":", "_")}", timeSlotsGridContainer, "", pickerRowColor, Color.white, 20f);
+        AddLayoutElement(rowButton.gameObject, SlotRowHeight, -1f, false);
+        ConfigureStretchRow(rowButton.gameObject, SlotRowHeight);
+
+        HorizontalLayoutGroup layout = rowButton.gameObject.AddComponent<HorizontalLayoutGroup>();
+        layout.padding = new RectOffset(30, 30, 0, 0);
+        layout.spacing = 28f;
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = false;
+        layout.childForceExpandHeight = true;
+
+        TMP_Text timeText = CreateText("Time", rowButton.transform, time, SlotTimeFontSize, FontStyles.Normal, TextAlignmentOptions.Left, Color.white);
+        AddLayoutElement(timeText.gameObject, -1f, 220f, false);
+
+        TMP_Text dotText = CreateText("StatusDot", rowButton.transform, "●", 24f, FontStyles.Bold, TextAlignmentOptions.Center, statusColor);
+        AddLayoutElement(dotText.gameObject, -1f, 32f, false);
+
+        TMP_Text statusText = CreateText("Status", rowButton.transform, status, SlotStatusFontSize, FontStyles.Bold, TextAlignmentOptions.Left, statusColor);
+        AddLayoutElement(statusText.gameObject, -1f, 1f, true);
+
+        TMP_Text flightText = CreateText("FlightId", rowButton.transform, flightId, SlotFlightFontSize, FontStyles.Normal, TextAlignmentOptions.Right, statusColor);
+        AddLayoutElement(flightText.gameObject, -1f, 280f, false);
+
+        rowButton.onClick.AddListener(() =>
+        {
+            SelectTimeSlotRow(rowButton.gameObject);
+
+            int separatorIndex = time.LastIndexOf(':');
+            if (separatorIndex >= 0 && int.TryParse(time.Substring(separatorIndex + 1), out int minute))
             {
-                textComp.text = $"{modalSelectedHour:D2}:{minVal:D2}";
+                modalSelectedMinute = minute;
             }
+            if (selectedSlotText != null)
+            {
+                selectedSlotText.text = string.IsNullOrEmpty(flightId) ? $"{time} {status}" : $"{time} {status} {flightId}";
+                selectedSlotText.color = statusColor;
+            }
+        });
+    }
 
-            bool isSlotSelected = (minVal == modalSelectedMinute);
-            StylePickerElement(slotGo, isSlotSelected);
+    private void SelectTimeSlotRow(GameObject row)
+    {
+        if (selectedTimeSlotRow != null && selectedTimeSlotRow != row)
+        {
+            ApplyTimeSlotSelectionVisual(selectedTimeSlotRow, false);
+        }
 
-            btn.onClick.RemoveAllListeners();
-            btn.onClick.AddListener(() => {
-                modalSelectedMinute = minVal;
-                RedrawTimeSlotsGrid();
-            });
+        selectedTimeSlotRow = row;
+        ApplyTimeSlotSelectionVisual(selectedTimeSlotRow, true);
+    }
+
+    private void ApplyTimeSlotSelectionVisual(GameObject row, bool isSelected)
+    {
+        if (row == null) return;
+
+        Image image = row.GetComponent<Image>();
+        if (image != null)
+        {
+            image.color = isSelected ? pickerSelectionFillColor : pickerRowColor;
+        }
+
+        SetRoundedSelectionBorder(row, isSelected);
+    }
+
+    private void StyleHourButton(GameObject element, bool isSelected)
+    {
+        var img = element.GetComponent<Image>();
+        if (img != null)
+        {
+            img.color = isSelected ? pickerSelectionFillColor : pickerRowColor;
+        }
+
+        SetRoundedSelectionBorder(element, isSelected);
+
+        var txt = element.GetComponentInChildren<TMP_Text>();
+        if (txt != null)
+        {
+            txt.color = Color.white;
+            txt.fontStyle = isSelected ? FontStyles.Bold : FontStyles.Normal;
         }
     }
 
@@ -713,26 +1025,500 @@ public class FlightDetailsPanel : MonoBehaviour
         }
     }
 
+    private void RefreshScrollContent(RectTransform content, float rowHeight, float spacing)
+    {
+        if (content == null) return;
+
+        int childCount = 0;
+        foreach (Transform child in content)
+        {
+            if (child.gameObject.activeSelf)
+            {
+                childCount++;
+            }
+        }
+
+        float contentHeight = Mathf.Max(1f, childCount * rowHeight + Mathf.Max(0, childCount - 1) * spacing);
+        content.anchorMin = new Vector2(0f, 1f);
+        content.anchorMax = new Vector2(1f, 1f);
+        content.pivot = new Vector2(0.5f, 1f);
+        content.offsetMin = new Vector2(0f, -contentHeight);
+        content.offsetMax = Vector2.zero;
+        content.sizeDelta = new Vector2(0f, contentHeight);
+        content.anchoredPosition = Vector2.zero;
+
+        LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+        if (content.parent is RectTransform viewport)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(viewport);
+        }
+    }
+
+    private void ConfigureStretchRow(GameObject row, float height)
+    {
+        if (row == null) return;
+
+        row.SetActive(true);
+        RectTransform rt = EnsureRectTransform(row);
+        rt.anchorMin = new Vector2(0f, 1f);
+        rt.anchorMax = new Vector2(1f, 1f);
+        rt.pivot = new Vector2(0.5f, 1f);
+        rt.offsetMin = new Vector2(0f, rt.offsetMin.y);
+        rt.offsetMax = new Vector2(0f, rt.offsetMax.y);
+        rt.sizeDelta = new Vector2(0f, height);
+
+        Image image = row.GetComponent<Image>();
+        if (image == null)
+        {
+            image = row.AddComponent<Image>();
+        }
+        if (image.color.a <= 0.01f)
+        {
+            image.color = pickerRowColor;
+        }
+        image.raycastTarget = true;
+
+        CanvasGroup canvasGroup = row.GetComponent<CanvasGroup>();
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+        }
+
+        TMP_Text[] texts = row.GetComponentsInChildren<TMP_Text>(true);
+        foreach (TMP_Text text in texts)
+        {
+            text.gameObject.SetActive(true);
+            if (text.color.a <= 0.01f)
+            {
+                text.color = Color.white;
+            }
+        }
+    }
+
+    private void ForceTimePickerLayoutRebuild()
+    {
+        if (timePickerPopup == null) return;
+
+        Canvas.ForceUpdateCanvases();
+        RectTransform popupRt = timePickerPopup.GetComponent<RectTransform>();
+        if (popupRt != null)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(popupRt);
+        }
+        if (hourTabsContainer is RectTransform hourContent)
+        {
+            RefreshScrollContent(hourContent, HourRowHeight, HourRowSpacing);
+        }
+        if (timeSlotsGridContainer is RectTransform slotContent)
+        {
+            RefreshScrollContent(slotContent, SlotRowHeight, SlotRowSpacing);
+        }
+        Canvas.ForceUpdateCanvases();
+    }
+
+    private void SetScrollContentSpacing(RectTransform content, float spacing)
+    {
+        if (content == null) return;
+
+        VerticalLayoutGroup layout = content.GetComponent<VerticalLayoutGroup>();
+        if (layout != null)
+        {
+            layout.spacing = spacing;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = true;
+            layout.childForceExpandHeight = false;
+        }
+    }
+
+    private void InitializePickerWindow(bool isDeparture)
+    {
+        int expectedMinutes = GetExpectedTimeMinutes(isDeparture);
+        pickerWindowStartMinutes = ((expectedMinutes + 4) / 5) * 5;
+        pickerWindowEndMinutes = pickerWindowStartMinutes + PickerWindowMinutes;
+
+        pickerHourValues.Clear();
+        int firstHour = pickerWindowStartMinutes / 60;
+        int lastHour = pickerWindowEndMinutes / 60;
+        for (int hour = firstHour; hour <= lastHour; hour++)
+        {
+            pickerHourValues.Add(hour);
+        }
+
+        modalSelectedHourIndex = 0;
+        modalSelectedHour = NormalizeHour(firstHour);
+        modalSelectedMinute = pickerWindowStartMinutes % 60;
+    }
+
+    private int GetExpectedTimeMinutes(bool isDeparture)
+    {
+        if (currentFlight != null)
+        {
+            string expectedTime = isDeparture ? currentFlight.expectedDeparture : currentFlight.expectedArrival;
+            if (TryParseTime(expectedTime, out int parsedMinutes))
+            {
+                return parsedMinutes;
+            }
+
+            TimeSlot slot = isDeparture ? currentFlight.takeoffSlot : currentFlight.landingSlot;
+            if (slot != null)
+            {
+                return slot.GetTotalMinutes();
+            }
+        }
+
+        int hour = isDeparture ? tempDepHour : tempArrHour;
+        int minute = isDeparture ? tempDepMinute : tempArrMinute;
+        return hour * 60 + minute;
+    }
+
+    private bool TryParseTime(string value, out int totalMinutes)
+    {
+        totalMinutes = 0;
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        string[] parts = value.Split(':');
+        if (parts.Length < 2 || !int.TryParse(parts[0], out int hour)) return false;
+
+        string minuteText = parts[1].Length >= 2 ? parts[1].Substring(0, 2) : parts[1];
+        if (!int.TryParse(minuteText, out int minute)) return false;
+        if (hour < 0 || hour > 23 || minute < 0 || minute > 59) return false;
+
+        totalMinutes = hour * 60 + minute;
+        return true;
+    }
+
+    private string FormatPickerHour(int absoluteHour)
+    {
+        int normalizedHour = NormalizeHour(absoluteHour);
+        return absoluteHour >= 24 ? $"+{normalizedHour:D2}:00" : $"{normalizedHour:D2}:00";
+    }
+
+    private string FormatPickerTime(int totalMinutes)
+    {
+        int absoluteHour = totalMinutes / 60;
+        int minute = totalMinutes % 60;
+        int normalizedHour = NormalizeHour(absoluteHour);
+        return absoluteHour >= 24 ? $"+{normalizedHour:D2}:{minute:D2}" : $"{normalizedHour:D2}:{minute:D2}";
+    }
+
+    private int GetFirstSelectableMinute(int absoluteHour)
+    {
+        return Mathf.Max(pickerWindowStartMinutes, absoluteHour * 60) % 60;
+    }
+
+    private int NormalizeHour(int absoluteHour)
+    {
+        return ((absoluteHour % 24) + 24) % 24;
+    }
+
+    private RectTransform EnsureRectTransform(GameObject go)
+    {
+        RectTransform rt = go.GetComponent<RectTransform>();
+        if (rt == null)
+        {
+            rt = go.AddComponent<RectTransform>();
+        }
+        return rt;
+    }
+
+    private void StretchToParent(RectTransform rt, Vector2 inset)
+    {
+        rt.anchorMin = Vector2.zero;
+        rt.anchorMax = Vector2.one;
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.offsetMin = inset;
+        rt.offsetMax = -inset;
+        rt.anchoredPosition = Vector2.zero;
+        rt.localScale = Vector3.one;
+    }
+
+    private Image EnsureImage(GameObject go, Color color)
+    {
+        Image image = go.GetComponent<Image>();
+        if (image == null)
+        {
+            image = go.AddComponent<Image>();
+        }
+        image.color = color;
+        image.raycastTarget = true;
+        return image;
+    }
+
+    private GameObject CreatePanel(string name, Transform parent, Color color)
+    {
+        GameObject go = CreateLayoutObject(name, parent, -1f, -1f, false);
+        Image image = EnsureImage(go, color);
+        if (color.a > 0.02f)
+        {
+            image.sprite = GetRoundedUiSprite();
+            image.type = Image.Type.Sliced;
+        }
+        return go;
+    }
+
+    private Sprite GetRoundedUiSprite()
+    {
+        if (roundedUiSprite != null) return roundedUiSprite;
+
+        const int size = 40;
+        const float radius = 10f;
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "TimePickerRoundedUiTexture",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Color[] pixels = new Color[size * size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float alpha = GetRoundedRectAlpha(x + 0.5f, y + 0.5f, 0f, size, radius);
+                pixels[y * size + x] = new Color(1f, 1f, 1f, alpha);
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        roundedUiSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(radius, radius, radius, radius));
+        roundedUiSprite.name = "TimePickerRoundedUiSprite";
+        roundedUiSprite.hideFlags = HideFlags.HideAndDontSave;
+        return roundedUiSprite;
+    }
+
+    private Sprite GetRoundedBorderSprite()
+    {
+        if (roundedBorderSprite != null) return roundedBorderSprite;
+
+        const int size = 40;
+        const float radius = 10f;
+        const float thickness = 3f;
+        Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+        {
+            name = "TimePickerRoundedBorderTexture",
+            filterMode = FilterMode.Bilinear,
+            wrapMode = TextureWrapMode.Clamp,
+            hideFlags = HideFlags.HideAndDontSave
+        };
+
+        Color[] pixels = new Color[size * size];
+        for (int y = 0; y < size; y++)
+        {
+            for (int x = 0; x < size; x++)
+            {
+                float px = x + 0.5f;
+                float py = y + 0.5f;
+                float outerAlpha = GetRoundedRectAlpha(px, py, 0f, size, radius);
+                float innerAlpha = GetRoundedRectAlpha(px, py, thickness, size - thickness, radius - thickness);
+                pixels[y * size + x] = new Color(1f, 1f, 1f, outerAlpha * (1f - innerAlpha));
+            }
+        }
+
+        texture.SetPixels(pixels);
+        texture.Apply(false, true);
+        roundedBorderSprite = Sprite.Create(
+            texture,
+            new Rect(0f, 0f, size, size),
+            new Vector2(0.5f, 0.5f),
+            100f,
+            0,
+            SpriteMeshType.FullRect,
+            new Vector4(radius, radius, radius, radius));
+        roundedBorderSprite.name = "TimePickerRoundedBorderSprite";
+        roundedBorderSprite.hideFlags = HideFlags.HideAndDontSave;
+        return roundedBorderSprite;
+    }
+
+    private float GetRoundedRectAlpha(float x, float y, float min, float max, float radius)
+    {
+        float nearestX = Mathf.Clamp(x, min + radius, max - radius);
+        float nearestY = Mathf.Clamp(y, min + radius, max - radius);
+        float distance = Vector2.Distance(new Vector2(x, y), new Vector2(nearestX, nearestY));
+        return Mathf.Clamp01(radius + 0.5f - distance);
+    }
+
+    private void SetRoundedSelectionBorder(GameObject row, bool isSelected)
+    {
+        if (row == null) return;
+
+        Outline oldOutline = row.GetComponent<Outline>();
+        if (oldOutline != null)
+        {
+            oldOutline.enabled = false;
+        }
+
+        Transform borderTransform = row.transform.Find("SelectionBorder");
+        GameObject borderGo;
+        if (borderTransform == null)
+        {
+            borderGo = new GameObject("SelectionBorder", typeof(RectTransform));
+            borderGo.layer = row.layer;
+            borderGo.transform.SetParent(row.transform, false);
+
+            RectTransform borderRt = EnsureRectTransform(borderGo);
+            StretchToParent(borderRt, Vector2.zero);
+            LayoutElement borderLayout = borderGo.AddComponent<LayoutElement>();
+            borderLayout.ignoreLayout = true;
+
+            Image borderImage = borderGo.AddComponent<Image>();
+            borderImage.sprite = GetRoundedBorderSprite();
+            borderImage.type = Image.Type.Sliced;
+            borderImage.color = pickerSelectionBorderColor;
+            borderImage.raycastTarget = false;
+        }
+        else
+        {
+            borderGo = borderTransform.gameObject;
+        }
+
+        borderGo.transform.SetAsLastSibling();
+        borderGo.SetActive(isSelected);
+    }
+
+    private GameObject CreateLayoutObject(string name, Transform parent, float preferredHeight, float preferredWidth, bool flexible)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+        RectTransform rt = EnsureRectTransform(go);
+        rt.localScale = Vector3.one;
+        AddLayoutElement(go, preferredHeight, preferredWidth, flexible);
+        return go;
+    }
+
+    private LayoutElement AddLayoutElement(GameObject go, float preferredHeight, float preferredWidth, bool flexible)
+    {
+        LayoutElement layout = go.GetComponent<LayoutElement>();
+        if (layout == null)
+        {
+            layout = go.AddComponent<LayoutElement>();
+        }
+
+        if (preferredHeight >= 0f) layout.preferredHeight = preferredHeight;
+        if (preferredWidth >= 0f) layout.preferredWidth = preferredWidth;
+        layout.flexibleWidth = flexible ? 1f : 0f;
+        layout.flexibleHeight = flexible ? 1f : 0f;
+        return layout;
+    }
+
+    private TMP_Text CreateText(string name, Transform parent, string text, float fontSize, FontStyles style, TextAlignmentOptions alignment, Color color)
+    {
+        GameObject go = new GameObject(name, typeof(RectTransform));
+        go.layer = parent.gameObject.layer;
+        go.transform.SetParent(parent, false);
+
+        TextMeshProUGUI tmp = go.AddComponent<TextMeshProUGUI>();
+        tmp.text = text;
+        tmp.fontSize = fontSize;
+        tmp.fontStyle = style;
+        tmp.alignment = alignment;
+        tmp.color = color;
+        tmp.raycastTarget = false;
+        tmp.textWrappingMode = TextWrappingModes.NoWrap;
+        tmp.overflowMode = TextOverflowModes.Ellipsis;
+        return tmp;
+    }
+
+    private Button CreateButton(string name, Transform parent, string label, Color backgroundColor, Color textColor, float fontSize)
+    {
+        GameObject go = CreatePanel(name, parent, backgroundColor);
+        Image background = go.GetComponent<Image>();
+        Button button = go.AddComponent<Button>();
+        button.targetGraphic = background;
+        ColorBlock colors = button.colors;
+        colors.normalColor = Color.white;
+        colors.highlightedColor = new Color(0.94f, 0.96f, 0.98f, 1f);
+        colors.pressedColor = new Color(0.82f, 0.85f, 0.88f, 1f);
+        colors.selectedColor = Color.white;
+        colors.disabledColor = new Color(0.55f, 0.55f, 0.55f, 0.65f);
+        colors.colorMultiplier = 1f;
+        colors.fadeDuration = 0.06f;
+        button.colors = colors;
+
+        if (!string.IsNullOrEmpty(label))
+        {
+            TMP_Text text = CreateText("Text", go.transform, label, fontSize, FontStyles.Bold, TextAlignmentOptions.Center, textColor);
+            StretchToParent(EnsureRectTransform(text.gameObject), new Vector2(8f, 4f));
+        }
+
+        return button;
+    }
+
+    private ScrollRect CreateScrollRect(string name, Transform parent, out RectTransform content)
+    {
+        GameObject scrollGo = CreatePanel(name, parent, new Color(0f, 0f, 0f, 0f));
+        StretchToParent(EnsureRectTransform(scrollGo), Vector2.zero);
+        ScrollRect scrollRect = scrollGo.AddComponent<ScrollRect>();
+        scrollRect.horizontal = false;
+        scrollRect.vertical = true;
+        scrollRect.movementType = ScrollRect.MovementType.Clamped;
+        scrollRect.scrollSensitivity = 35f;
+
+        GameObject viewportGo = CreatePanel("Viewport", scrollGo.transform, new Color(1f, 1f, 1f, 0.01f));
+        RectTransform viewportRt = EnsureRectTransform(viewportGo);
+        StretchToParent(viewportRt, Vector2.zero);
+        Image viewportImage = EnsureImage(viewportGo, new Color(1f, 1f, 1f, 0.01f));
+        viewportImage.raycastTarget = false;
+        RectMask2D rectMask = viewportGo.GetComponent<RectMask2D>();
+        if (rectMask == null)
+        {
+            rectMask = viewportGo.AddComponent<RectMask2D>();
+        }
+
+        GameObject contentGo = CreateLayoutObject("Content", viewportGo.transform, -1f, -1f, false);
+        content = EnsureRectTransform(contentGo);
+        content.anchorMin = new Vector2(0f, 1f);
+        content.anchorMax = new Vector2(1f, 1f);
+        content.pivot = new Vector2(0.5f, 1f);
+        content.offsetMin = new Vector2(0f, 0f);
+        content.offsetMax = Vector2.zero;
+        content.anchoredPosition = Vector2.zero;
+
+        VerticalLayoutGroup layout = contentGo.AddComponent<VerticalLayoutGroup>();
+        layout.spacing = 4f;
+        layout.padding = new RectOffset(0, 0, 0, 0);
+        layout.childControlWidth = true;
+        layout.childControlHeight = true;
+        layout.childForceExpandWidth = true;
+        layout.childForceExpandHeight = false;
+        ContentSizeFitter fitter = contentGo.AddComponent<ContentSizeFitter>();
+        fitter.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
+        fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        scrollRect.viewport = viewportRt;
+        scrollRect.content = content;
+        return scrollRect;
+    }
+
+    private string GetInfoIcon(string label)
+    {
+        switch (label)
+        {
+            case "Airport": return "◎";
+            case "Current Time": return "◷";
+            case "Selected Slot": return "▣";
+            default: return "";
+        }
+    }
+
     private void ConfirmTimePickerSelection()
     {
         if (isPickingDepartureTime)
         {
             tempDepHour = modalSelectedHour;
             tempDepMinute = modalSelectedMinute;
-
-            // Maintain modern gameplay flow: Auto-adjust recommended Arrival slot when Departure is modified!
-            if (TimeSlotManager.Instance != null && currentFlight != null)
-            {
-                TimeSlot depSlot = TimeSlotManager.Instance.GetTimeSlot(currentFlight.fromAirport, tempDepHour, tempDepMinute);
-                if (depSlot == null) depSlot = new TimeSlot(tempDepHour, tempDepMinute);
-
-                TimeSlot suggestedArrival = TimeSlotManager.Instance.GetSuggestedLandingSlot(currentFlight.toAirport, depSlot, currentFlight.flightDurationMinutes);
-                if (suggestedArrival != null)
-                {
-                    tempArrHour = suggestedArrival.hours;
-                    tempArrMinute = suggestedArrival.minutes;
-                }
-            }
         }
         else
         {
