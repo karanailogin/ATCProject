@@ -8,6 +8,30 @@ public class AirportSchedulePanel : MonoBehaviour
     public static AirportSchedulePanel Instance;
     private static Sprite scheduleRoundedSprite;
 
+    private static void ApplyScheduleRoundedImage(Image img)
+    {
+        if (img == null) return;
+
+        if (scheduleRoundedSprite == null)
+        {
+            var sceneImgs = FindObjectsByType<Image>(FindObjectsInactive.Include);
+            foreach (var simg in sceneImgs)
+            {
+                if (simg.sprite != null && simg.sprite.name == "RoundedRect")
+                {
+                    scheduleRoundedSprite = simg.sprite;
+                    break;
+                }
+            }
+        }
+
+        if (scheduleRoundedSprite != null)
+        {
+            img.sprite = scheduleRoundedSprite;
+            img.type = Image.Type.Sliced;
+        }
+    }
+
     [Header("Panel Container")]
     public GameObject panelContainer;
 

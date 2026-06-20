@@ -7,6 +7,7 @@ public class FlightIconConfig : ScriptableObject
     public Sprite takeoffIcon;
     public Sprite landingIcon;
     public Sprite onGroundIcon;
+    public Sprite inAirIcon;
 
     public Sprite GetFlightIcon(FlightState state)
     {
@@ -18,7 +19,7 @@ public class FlightIconConfig : ScriptableObject
             case FlightState.Landed:
                 return onGroundIcon;
             case FlightState.EnRoute:
-                return takeoffIcon;
+                return inAirIcon != null ? inAirIcon : takeoffIcon;
             case FlightState.Arriving:
             case FlightState.Holding:
             case FlightState.Diverted:

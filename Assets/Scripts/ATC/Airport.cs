@@ -150,30 +150,7 @@ public class Airport : MonoBehaviour
         events.Sort((e1, e2) => e1.sortMinutes.CompareTo(e2.sortMinutes));
 
         // 3. Render sorted timeline events
-        if (events.Count == 0)
-        {
-            if (filterIndex == 0 || filterIndex == 1)
-            {
-                GameObject placeholderGo = Instantiate(flightInfoPrefab, flightListContent);
-                placeholderGo.name = "Placeholder_NoDepartures";
-                var placeholderUI = placeholderGo.GetComponent<FlightInfoUI>();
-                if (placeholderUI != null)
-                {
-                    placeholderUI.SetHeaderData("No departing flights");
-                }
-            }
-            if (filterIndex == 0 || filterIndex == 2)
-            {
-                GameObject placeholderGo = Instantiate(flightInfoPrefab, flightListContent);
-                placeholderGo.name = "Placeholder_NoArrivals";
-                var placeholderUI = placeholderGo.GetComponent<FlightInfoUI>();
-                if (placeholderUI != null)
-                {
-                    placeholderUI.SetHeaderData("No arriving flights");
-                }
-            }
-        }
-        else
+        if (events.Count > 0)
         {
             foreach (var ev in events)
             {

@@ -104,7 +104,6 @@ public class FlightDetailsPanel : MonoBehaviour
     private readonly Color pickerYellowColor = new Color(1.0f, 0.82f, 0.22f, 1.0f);
     private readonly Color pickerSelectionFillColor = new Color(0.07f, 0.19f, 0.27f, 1.0f);
     private readonly Color pickerSelectionBorderColor = new Color(0.22f, 0.74f, 0.97f, 1.0f);
-    private const string SampleAirportCode = "MUM";
     private const float HourRowHeight = 66f;
     private const float HourRowSpacing = 8f;
     private const float HourFontSize = 30f;
@@ -551,7 +550,7 @@ public class FlightDetailsPanel : MonoBehaviour
 
         if (currentFlight != null)
         {
-            string airportCode = SampleAirportCode;
+            string airportCode = GetPickerAirportCode();
             if (airportTitleText != null) airportTitleText.text = $"{airportCode} Schedule";
             if (pickerModeText != null) pickerModeText.text = isDeparture ? "Select Departure Time" : "Select Arrival Time";
             if (airportInfoValueText != null) airportInfoValueText.text = airportCode;
@@ -570,7 +569,7 @@ public class FlightDetailsPanel : MonoBehaviour
 
         if (timePickerTitleText != null && currentFlight != null)
         {
-            timePickerTitleText.text = $"{SampleAirportCode} Schedule";
+            timePickerTitleText.text = $"{GetPickerAirportCode()} Schedule";
             
             var rt = timePickerTitleText.GetComponent<RectTransform>();
             if (rt != null)
@@ -902,30 +901,48 @@ public class FlightDetailsPanel : MonoBehaviour
 
     private void AddWindowSlotRow(int totalMinutes)
     {
-        int minute = totalMinutes % 60;
         string time = FormatPickerTime(totalMinutes);
 
-        switch (minute)
+        string airportCode = GetPickerAirportCode();
+        TimeSlot slot = TimeSlotManager.Instance != null
+            ? TimeSlotManager.Instance.GetTimeSlot(airportCode, totalMinutes / 60, totalMinutes % 60)
+            : null;
+
+        if (slot == null || !slot.isBooked)
         {
-            case 15:
-                AddSampleSlotRow(time, "Booked ARR", "A00100", pickerRedColor);
-                break;
-            case 30:
-                AddSampleSlotRow(time, "Booked DEP", "A00105", pickerOrangeColor);
-                break;
-            case 45:
-                AddSampleSlotRow(time, "Pending ARR", "A00112", pickerYellowColor);
-                break;
-            case 55:
-                AddSampleSlotRow(time, "Booked DEP", "A00118", pickerOrangeColor);
-                break;
-            default:
-                AddSampleSlotRow(time, "Available", "", pickerGreenColor);
-                break;
+            AddSlotRow(time, "Available", "", "", pickerGreenColor);
+            return;
         }
+
+        Flight bookedFlight = null;
+        if (FlightManager.Instance != null)
+        {
+            bookedFlight = FlightManager.Instance.AllFlights.Find(
+                flight => flight != null && flight.flightName == slot.bookedByFlight);
+        }
+
+        bool isDeparture = bookedFlight != null &&
+            bookedFlight.fromAirport == airportCode &&
+            bookedFlight.takeoffSlot != null &&
+            bookedFlight.takeoffSlot.hours == slot.hours &&
+            bookedFlight.takeoffSlot.minutes == slot.minutes;
+
+        string status = isDeparture ? "Booked DEP" : "Booked ARR";
+        string routeAirport = bookedFlight == null
+            ? ""
+            : (isDeparture ? bookedFlight.toAirport : bookedFlight.fromAirport);
+        Color statusColor = isDeparture ? pickerOrangeColor : pickerRedColor;
+
+        AddSlotRow(time, status, slot.bookedByFlight, routeAirport, statusColor);
     }
 
-    private void AddSampleSlotRow(string time, string status, string flightId, Color statusColor)
+    private string GetPickerAirportCode()
+    {
+        if (currentFlight == null) return "---";
+        return isPickingDepartureTime ? currentFlight.fromAirport : currentFlight.toAirport;
+    }
+
+    private void AddSlotRow(string time, string status, string flightId, string routeAirport, Color statusColor)
     {
         Button rowButton = CreateButton($"SlotRow_{time.Replace(":", "_")}", timeSlotsGridContainer, "", pickerRowColor, Color.white, 20f);
         AddLayoutElement(rowButton.gameObject, SlotRowHeight, -1f, false);
@@ -949,7 +966,10 @@ public class FlightDetailsPanel : MonoBehaviour
         AddLayoutElement(statusText.gameObject, -1f, 1f, true);
 
         TMP_Text flightText = CreateText("FlightId", rowButton.transform, flightId, SlotFlightFontSize, FontStyles.Normal, TextAlignmentOptions.Right, statusColor);
-        AddLayoutElement(flightText.gameObject, -1f, 280f, false);
+        AddLayoutElement(flightText.gameObject, -1f, 180f, false);
+
+        TMP_Text routeText = CreateText("RouteAirport", rowButton.transform, routeAirport, SlotFlightFontSize, FontStyles.Normal, TextAlignmentOptions.Right, statusColor);
+        AddLayoutElement(routeText.gameObject, -1f, 100f, false);
 
         rowButton.onClick.AddListener(() =>
         {
@@ -962,7 +982,9 @@ public class FlightDetailsPanel : MonoBehaviour
             }
             if (selectedSlotText != null)
             {
-                selectedSlotText.text = string.IsNullOrEmpty(flightId) ? $"{time} {status}" : $"{time} {status} {flightId}";
+                selectedSlotText.text = string.IsNullOrEmpty(flightId)
+                    ? $"{time} {status}"
+                    : $"{time} {status} {flightId} {routeAirport}";
                 selectedSlotText.color = statusColor;
             }
         });

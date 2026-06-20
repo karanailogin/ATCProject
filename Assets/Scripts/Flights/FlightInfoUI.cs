@@ -9,8 +9,8 @@ public class FlightInfoUI : MonoBehaviour
     public TextMeshProUGUI statusText;
 
     [Header("Selection Colors")]
-    public Color normalColor = new Color(0.15f, 0.15f, 0.17f, 1.0f);
-    public Color selectedColor = new Color(0.11f, 0.38f, 0.73f, 1.0f); // Bright elegant blue highlight
+    public Color normalColor = new Color(0.15f, 0.15f, 0.17f, 0.95f);
+    public Color selectedColor = new Color(0.11f, 0.38f, 0.73f, 0.98f); // Bright elegant blue highlight
 
     [Header("Enhancements for Prefab Customization")]
     public UnityEngine.UI.Button acceptButton;
@@ -467,8 +467,8 @@ public class FlightInfoUI : MonoBehaviour
         Color badgeColor = GetOutboundStatusColor(flight);
         SetupStatusBadge(statusStr, badgeColor);
 
-        // Configure the flight icon
-        UpdateIconForState(flight.state);
+        // Departure-airport cards always use the takeoff icon.
+        UpdateIconWithSprite(iconConfig != null ? iconConfig.takeoffIcon : null);
 
         // Click interaction to open details
         if (clickButton != null)
@@ -526,8 +526,8 @@ public class FlightInfoUI : MonoBehaviour
         Color badgeColor = GetInboundStatusColor(flight);
         SetupStatusBadge(statusStr, badgeColor);
 
-        // Configure the flight icon
-        UpdateIconForState(flight.state);
+        // Arrival-airport cards always use the landing icon.
+        UpdateIconWithSprite(iconConfig != null ? iconConfig.landingIcon : null);
 
         // Click interaction to open details
         if (clickButton != null)

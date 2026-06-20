@@ -15,3 +15,4 @@ MonoBehaviour:
   takeoffIcon: {fileID: -2034908903310393984, guid: 57d313f51028a8c4a8158b2f745cfb1e, type: 3}
   landingIcon: {fileID: 8718264304334273478, guid: 43d13e941b3488b469ca082a8585e6ac, type: 3}
   onGroundIcon: {fileID: -923627540197392758, guid: db5a34b810e4d24449eb980e61bc26e4, type: 3}
+  inAirIcon: {fileID: -7530234580502108924, guid: 2b877cf7bc8c8ba41b9cbb9e9ddabaac, type: 3}
