@@ -22,6 +22,19 @@ public class GameManager : MonoBehaviour
 
     public string GetFormattedFunds()
     {
-        return $"${funds:N0}";
+        double absoluteFunds = System.Math.Abs(funds);
+        string sign = funds < 0 ? "-" : "";
+
+        if (absoluteFunds >= 1000000d)
+        {
+            return $"{sign}${(absoluteFunds / 1000000d).ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}M";
+        }
+
+        if (absoluteFunds >= 1000d)
+        {
+            return $"{sign}${(absoluteFunds / 1000d).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)}K";
+        }
+
+        return $"{sign}${absoluteFunds.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}";
     }
 }

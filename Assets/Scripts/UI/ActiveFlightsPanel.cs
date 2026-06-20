@@ -14,6 +14,8 @@ public class ActiveFlightsPanel : MonoBehaviour
     public GameObject pendingFlightsPanel;
     public Button closeButton;
 
+    private TMP_Text headerText;
+
     private void Awake()
     {
         if (Instance == null || Instance == this)
@@ -29,6 +31,7 @@ public class ActiveFlightsPanel : MonoBehaviour
 
     private void Start()
     {
+        StyleHeader();
         if (closeButton != null)
         {
             closeButton.onClick.AddListener(ClosePanel);
@@ -100,7 +103,7 @@ public class ActiveFlightsPanel : MonoBehaviour
             // Check if any flight's status string changed
             foreach (var f in activeFlights)
             {
-                string key = f.flightName + "_" + f.state + "_" + f.status;
+                string key = f.flightName + "_" + f.state + "_" + f.status + "_" + f.landingApproved;
                 if (!lastStatesHash.Contains(key))
                 {
                     needsRefresh = true;
@@ -124,7 +127,7 @@ public class ActiveFlightsPanel : MonoBehaviour
             {
                 if (flight != null)
                 {
-                    if (flight.state != FlightState.Landed && flight.state != FlightState.Diverted)
+                    if (IsOperationalFlight(flight))
                     {
                         active.Add(flight);
                     }
@@ -146,6 +149,7 @@ public class ActiveFlightsPanel : MonoBehaviour
 
         List<Flight> activeFlights = GetActiveFlights();
         lastActiveCount = activeFlights.Count;
+        UpdateHeaderCount(lastActiveCount);
         lastStatesHash.Clear();
 
         foreach (Flight flight in activeFlights)
@@ -158,8 +162,93 @@ public class ActiveFlightsPanel : MonoBehaviour
             }
 
             // Track state for next update checks
-            string key = flight.flightName + "_" + flight.state + "_" + flight.status;
+            string key = flight.flightName + "_" + flight.state + "_" + flight.status + "_" + flight.landingApproved;
             lastStatesHash.Add(key);
         }
+    }
+
+    public static bool IsOperationalFlight(Flight flight)
+    {
+        if (flight == null || flight.state == FlightState.Landed ||
+            flight.state == FlightState.Diverted || flight.state == FlightState.SlotConflict)
+        {
+            return false;
+        }
+
+        return flight.landingApproved ||
+            flight.state == FlightState.ArrivalApproved ||
+            flight.state == FlightState.EnRoute ||
+            flight.state == FlightState.Arriving;
+    }
+
+    private void StyleHeader()
+    {
+        Transform header = transform.Find("HeaderPanel");
+        if (header == null) return;
+
+        headerText = header.Find("HeaderText")?.GetComponent<TMP_Text>();
+        if (headerText != null)
+        {
+            RectTransform titleRect = headerText.rectTransform;
+            titleRect.anchorMin = new Vector2(0.14f, 0f);
+            titleRect.anchorMax = new Vector2(0.76f, 1f);
+            titleRect.offsetMin = Vector2.zero;
+            titleRect.offsetMax = Vector2.zero;
+            headerText.fontSize = 34f;
+            headerText.fontStyle = FontStyles.Bold;
+            headerText.alignment = TextAlignmentOptions.MidlineLeft;
+            headerText.textWrappingMode = TextWrappingModes.NoWrap;
+            headerText.color = new Color(0.28f, 0.74f, 1f, 1f);
+        }
+
+        CreateHeaderIcon(header, "TopBarIcons/plane", new Color(0.28f, 0.74f, 1f, 1f));
+        StyleCloseButton();
+        UpdateHeaderCount(GetActiveFlights().Count);
+    }
+
+    private void CreateHeaderIcon(Transform header, string resourcePath, Color tint)
+    {
+        Texture2D texture = Resources.Load<Texture2D>(resourcePath);
+        if (texture == null || header.Find("HeaderIcon") != null) return;
+
+        GameObject iconGo = new GameObject("HeaderIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(RawImage));
+        RectTransform iconRect = iconGo.GetComponent<RectTransform>();
+        iconRect.SetParent(header, false);
+        iconRect.anchorMin = new Vector2(0.035f, 0.25f);
+        iconRect.anchorMax = new Vector2(0.115f, 0.75f);
+        iconRect.offsetMin = Vector2.zero;
+        iconRect.offsetMax = Vector2.zero;
+        RawImage icon = iconGo.GetComponent<RawImage>();
+        icon.texture = texture;
+        icon.color = tint;
+        icon.raycastTarget = false;
+    }
+
+    private void StyleCloseButton()
+    {
+        if (closeButton == null) return;
+
+        RectTransform rect = closeButton.GetComponent<RectTransform>();
+        rect.anchorMin = new Vector2(1f, 0.5f);
+        rect.anchorMax = new Vector2(1f, 0.5f);
+        rect.pivot = new Vector2(1f, 0.5f);
+        rect.anchoredPosition = new Vector2(-18f, 0f);
+        rect.sizeDelta = new Vector2(68f, 68f);
+
+        Image image = closeButton.GetComponent<Image>();
+        if (image != null) image.color = new Color(0.12f, 0.15f, 0.19f, 0.95f);
+        TMP_Text label = closeButton.GetComponentInChildren<TMP_Text>();
+        if (label != null)
+        {
+            label.text = "×";
+            label.fontSize = 38f;
+            label.fontStyle = FontStyles.Normal;
+            label.color = new Color(0.78f, 0.83f, 0.9f, 1f);
+        }
+    }
+
+    private void UpdateHeaderCount(int count)
+    {
+        if (headerText != null) headerText.text = $"ACTIVE  ·  {count}";
     }
 }
